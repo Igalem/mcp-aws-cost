@@ -75,3 +75,4 @@ source venv/bin/activate
 python -c "import os; from dotenv import load_dotenv; load_dotenv(); print('Key found:', bool(os.getenv('ANTHROPIC_API_KEY'))); print('Key starts with:', os.getenv('ANTHROPIC_API_KEY', '')[:15] + '...' if os.getenv('ANTHROPIC_API_KEY') else 'None')"
 ```
 
+

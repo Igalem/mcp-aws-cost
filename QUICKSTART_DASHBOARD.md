@@ -85,3 +85,4 @@ Open your browser: `http://localhost:5173`
 - Add query detail views and drill-downs
 - Implement export functionality
 
+
