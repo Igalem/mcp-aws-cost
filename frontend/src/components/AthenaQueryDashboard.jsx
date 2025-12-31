@@ -10,6 +10,7 @@ const AthenaQueryDashboard = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [selectedWorkgroup, setSelectedWorkgroup] = useState('all');
+  const [selectedWorkgroupLine, setSelectedWorkgroupLine] = useState(null); // For filtering workgroup lines
 
   // Fetch data from backend API
   useEffect(() => {
@@ -77,10 +78,14 @@ const AthenaQueryDashboard = () => {
       dailyMap[q.date].queries += q.query_count;
       dailyMap[q.date].data_scanned += q.scanned_size_mb;
     });
-    // Sort by date chronologically (oldest to newest)
+    // Sort by date chronologically (oldest to newest) and convert MB to TB
     return Object.values(dailyMap)
       .sort((a, b) => new Date(a.date) - new Date(b.date))
-      .slice(-14); // Last 14 days
+      .slice(-14) // Last 14 days
+      .map(day => ({
+        ...day,
+        data_scanned: day.data_scanned / (1024 * 1024) // Convert MB to TB
+      }));
   };
 
   const getWorkgroupStats = () => {
@@ -93,10 +98,133 @@ const AthenaQueryDashboard = () => {
       workgroupMap[q.workgroup].queries += q.query_count;
       workgroupMap[q.workgroup].data += q.scanned_size_mb;
     });
-    // Sort by queries descending and take top 10
+    // Sort by queries descending, take top 10, and convert MB to TB
     return Object.values(workgroupMap)
       .sort((a, b) => b.queries - a.queries)
-      .slice(0, 10);
+      .slice(0, 10)
+      .map(wg => ({
+        ...wg,
+        data: wg.data / (1024 * 1024) // Convert MB to TB
+      }));
+  };
+
+  const getWorkgroupDataUsage = () => {
+    const filteredQueries = getFilteredQueries();
+    const workgroupMap = {};
+    filteredQueries.forEach(q => {
+      if (!workgroupMap[q.workgroup]) {
+        workgroupMap[q.workgroup] = { name: q.workgroup, queries: 0, data: 0 };
+      }
+      workgroupMap[q.workgroup].queries += q.query_count;
+      workgroupMap[q.workgroup].data += q.scanned_size_mb;
+    });
+    // Sort by data descending, take top 10, and convert MB to TB
+    return Object.values(workgroupMap)
+      .sort((a, b) => b.data - a.data)
+      .slice(0, 10)
+      .map(wg => ({
+        ...wg,
+        data: wg.data / (1024 * 1024) // Convert MB to TB
+      }));
+  };
+
+  // Get daily query stats by workgroup (top 10 by total queries)
+  const getDailyStatsByWorkgroupQueries = () => {
+    const filteredQueries = getFilteredQueries();
+    
+    // First, get top 10 workgroups by total queries
+    const workgroupTotals = {};
+    filteredQueries.forEach(q => {
+      if (!workgroupTotals[q.workgroup]) {
+        workgroupTotals[q.workgroup] = 0;
+      }
+      workgroupTotals[q.workgroup] += q.query_count;
+    });
+    
+    const topWorkgroups = Object.entries(workgroupTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name]) => name);
+    
+    // Get last 14 days
+    const dates = [];
+    for (let i = 13; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      dates.push(date.toISOString().split('T')[0]);
+    }
+    
+    // Build data structure: array of { date, workgroup1: count, workgroup2: count, ... }
+    const dailyMap = {};
+    dates.forEach(date => {
+      dailyMap[date] = { date };
+      topWorkgroups.forEach(wg => {
+        dailyMap[date][wg] = 0;
+      });
+    });
+    
+    // Populate with actual data
+    filteredQueries.forEach(q => {
+      if (topWorkgroups.includes(q.workgroup) && dailyMap[q.date]) {
+        dailyMap[q.date][q.workgroup] = (dailyMap[q.date][q.workgroup] || 0) + q.query_count;
+      }
+    });
+    
+    return Object.values(dailyMap).sort((a, b) => new Date(a.date) - new Date(b.date));
+  };
+
+  // Get daily data scanned stats by workgroup (top 10 by total data scanned)
+  const getDailyStatsByWorkgroupData = () => {
+    const filteredQueries = getFilteredQueries();
+    
+    // First, get top 10 workgroups by total data scanned
+    const workgroupTotals = {};
+    filteredQueries.forEach(q => {
+      if (!workgroupTotals[q.workgroup]) {
+        workgroupTotals[q.workgroup] = 0;
+      }
+      workgroupTotals[q.workgroup] += q.scanned_size_mb;
+    });
+    
+    const topWorkgroups = Object.entries(workgroupTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name]) => name);
+    
+    // Get last 14 days
+    const dates = [];
+    for (let i = 13; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      dates.push(date.toISOString().split('T')[0]);
+    }
+    
+    // Build data structure: array of { date, workgroup1: tb, workgroup2: tb, ... }
+    const dailyMap = {};
+    dates.forEach(date => {
+      dailyMap[date] = { date };
+      topWorkgroups.forEach(wg => {
+        dailyMap[date][wg] = 0;
+      });
+    });
+    
+    // Populate with actual data (convert MB to TB)
+    filteredQueries.forEach(q => {
+      if (topWorkgroups.includes(q.workgroup) && dailyMap[q.date]) {
+        dailyMap[q.date][q.workgroup] = (dailyMap[q.date][q.workgroup] || 0) + q.scanned_size_mb;
+      }
+    });
+    
+    // Convert MB to TB
+    return Object.values(dailyMap)
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .map(day => {
+        const result = { date: day.date };
+        topWorkgroups.forEach(wg => {
+          result[wg] = day[wg] / (1024 * 1024); // Convert MB to TB
+        });
+        return result;
+      });
   };
 
   // Get all unique workgroups for filter dropdown
@@ -116,7 +244,7 @@ const AthenaQueryDashboard = () => {
     return {
       total_queries: total.queries,
       total_data_tb: (total.data / (1024 * 1024)).toFixed(2), // Convert MB to TB
-      avg_time: total.queries > 0 ? (total.time / total.queries).toFixed(1) : '0.0',
+      avg_time: total.queries > 0 ? ((total.time / total.queries) / 60).toFixed(1) : '0.0', // Convert seconds to minutes
       workgroups: new Set(filteredQueries.map(q => q.workgroup)).size
     };
   };
@@ -167,7 +295,41 @@ const AthenaQueryDashboard = () => {
   const stats = getTotalStats();
   const dailyStats = getDailyStats();
   const workgroupStats = getWorkgroupStats();
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+  const workgroupDataUsage = getWorkgroupDataUsage();
+  const dailyStatsByWorkgroupQueries = getDailyStatsByWorkgroupQueries();
+  const dailyStatsByWorkgroupData = getDailyStatsByWorkgroupData();
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#a855f7'];
+
+  // Get list of workgroups from the data
+  const getWorkgroupNames = () => {
+    if (dailyStatsByWorkgroupQueries.length > 0) {
+      return Object.keys(dailyStatsByWorkgroupQueries[0]).filter(key => key !== 'date');
+    }
+    return [];
+  };
+
+  const workgroupNames = getWorkgroupNames();
+
+  // Handle legend click to filter workgroups
+  const handleLegendClick = (e) => {
+    const clickedWorkgroup = e.dataKey;
+    // If clicking the same workgroup, reset to show all; otherwise show only clicked one
+    if (selectedWorkgroupLine === clickedWorkgroup) {
+      setSelectedWorkgroupLine(null);
+    } else {
+      setSelectedWorkgroupLine(clickedWorkgroup);
+    }
+  };
+
+  // Filter workgroups based on selection
+  const getVisibleWorkgroups = () => {
+    if (selectedWorkgroupLine === null) {
+      return workgroupNames; // Show all
+    }
+    return [selectedWorkgroupLine]; // Show only selected
+  };
+
+  const visibleWorkgroups = getVisibleWorkgroups();
 
   if (loading) {
     return (
@@ -220,37 +382,37 @@ const AthenaQueryDashboard = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-3">
-            <Database className="text-blue-400" size={24} />
-            <h3 className="text-slate-400 text-sm font-medium">Total Queries</h3>
+      <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Database className="text-blue-400" size={18} />
+            <h3 className="text-slate-400 text-xs font-medium">Total Queries</h3>
           </div>
-          <p className="text-3xl font-bold">{stats.total_queries.toLocaleString()}</p>
+          <p className="text-2xl font-bold">{stats.total_queries.toLocaleString()}</p>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-3">
-            <TrendingUp className="text-green-400" size={24} />
-            <h3 className="text-slate-400 text-sm font-medium">Data Scanned</h3>
+        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="text-green-400" size={18} />
+            <h3 className="text-slate-400 text-xs font-medium">Data Scanned</h3>
           </div>
-          <p className="text-3xl font-bold">{stats.total_data_tb} TB</p>
+          <p className="text-2xl font-bold">{stats.total_data_tb} TB</p>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-3">
-            <Calendar className="text-yellow-400" size={24} />
-            <h3 className="text-slate-400 text-sm font-medium">Avg Exec Time</h3>
+        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Calendar className="text-yellow-400" size={18} />
+            <h3 className="text-slate-400 text-xs font-medium">Avg Exec Time</h3>
           </div>
-          <p className="text-3xl font-bold">{stats.avg_time}s</p>
+          <p className="text-2xl font-bold">{stats.avg_time} mins</p>
         </div>
 
-        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-3">
-            <Users className="text-purple-400" size={24} />
-            <h3 className="text-slate-400 text-sm font-medium">Workgroups</h3>
+        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="text-purple-400" size={18} />
+            <h3 className="text-slate-400 text-xs font-medium">Workgroups</h3>
           </div>
-          <p className="text-3xl font-bold">{stats.workgroups}</p>
+          <p className="text-2xl font-bold">{stats.workgroups}</p>
         </div>
       </div>
 
@@ -284,7 +446,7 @@ const AthenaQueryDashboard = () => {
 
         {/* Data Scanned Trend */}
         <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <h3 className="text-xl font-semibold mb-4">Data Scanned (MB)</h3>
+          <h3 className="text-xl font-semibold mb-4">Data Scanned (TB)</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={dailyStats}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -301,13 +463,135 @@ const AthenaQueryDashboard = () => {
               <Tooltip 
                 contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
                 labelStyle={{ color: '#cbd5e1' }}
+                formatter={(value) => `${Number(value).toFixed(2)} TB`}
               />
               <Legend wrapperStyle={{ color: '#cbd5e1' }} />
-              <Bar dataKey="data_scanned" fill="#10b981" name="Data Scanned (MB)" />
+              <Bar dataKey="data_scanned" fill="#10b981" name="Data Scanned (TB)" />
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </div>
 
+      {/* Workgroup Trend Charts */}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Query Trend by Workgroup */}
+        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold">Query Trend by Workgroup (Top 10)</h3>
+            {selectedWorkgroupLine && (
+              <button
+                onClick={() => setSelectedWorkgroupLine(null)}
+                className="text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Show All
+              </button>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={dailyStatsByWorkgroupQueries}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis 
+                dataKey="date" 
+                stroke="#94a3b8"
+                tick={{ fill: '#94a3b8' }}
+                tickFormatter={(val) => {
+                  const date = new Date(val);
+                  return `${date.getMonth() + 1}/${date.getDate()}`;
+                }}
+              />
+              <YAxis stroke="#94a3b8" tick={{ fill: '#94a3b8' }} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+                labelStyle={{ color: '#cbd5e1' }}
+              />
+              <Legend 
+                wrapperStyle={{ color: '#cbd5e1' }} 
+                onClick={handleLegendClick}
+                style={{ cursor: 'pointer' }}
+              />
+              {dailyStatsByWorkgroupQueries.length > 0 && workgroupNames
+                .filter(workgroup => visibleWorkgroups.includes(workgroup))
+                .map((workgroup, index) => {
+                  const originalIndex = workgroupNames.indexOf(workgroup);
+                  return (
+                    <Line 
+                      key={workgroup}
+                      type="monotone" 
+                      dataKey={workgroup} 
+                      stroke={COLORS[originalIndex % COLORS.length]} 
+                      strokeWidth={selectedWorkgroupLine === workgroup ? 3 : 2}
+                      name={workgroup}
+                      dot={false}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => handleLegendClick({ dataKey: workgroup })}
+                    />
+                  );
+                })}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Data Scanned Trend by Workgroup */}
+        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold">Data Scanned by Workgroup (Top 10)</h3>
+            {selectedWorkgroupLine && (
+              <button
+                onClick={() => setSelectedWorkgroupLine(null)}
+                className="text-xs text-blue-400 hover:text-blue-300 underline"
+              >
+                Show All
+              </button>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={dailyStatsByWorkgroupData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis 
+                dataKey="date" 
+                stroke="#94a3b8"
+                tick={{ fill: '#94a3b8' }}
+                tickFormatter={(val) => {
+                  const date = new Date(val);
+                  return `${date.getMonth() + 1}/${date.getDate()}`;
+                }}
+              />
+              <YAxis stroke="#94a3b8" tick={{ fill: '#94a3b8' }} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
+                labelStyle={{ color: '#cbd5e1' }}
+                formatter={(value) => `${Number(value).toFixed(2)} TB`}
+              />
+              <Legend 
+                wrapperStyle={{ color: '#cbd5e1' }} 
+                onClick={handleLegendClick}
+                style={{ cursor: 'pointer' }}
+              />
+              {dailyStatsByWorkgroupData.length > 0 && workgroupNames
+                .filter(workgroup => visibleWorkgroups.includes(workgroup))
+                .map((workgroup, index) => {
+                  const originalIndex = workgroupNames.indexOf(workgroup);
+                  return (
+                    <Line 
+                      key={workgroup}
+                      type="monotone" 
+                      dataKey={workgroup} 
+                      stroke={COLORS[originalIndex % COLORS.length]} 
+                      strokeWidth={selectedWorkgroupLine === workgroup ? 3 : 2}
+                      name={workgroup}
+                      dot={false}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => handleLegendClick({ dataKey: workgroup })}
+                    />
+                  );
+                })}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Workgroup Distribution */}
         <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
           <h3 className="text-xl font-semibold mb-4">Queries by Workgroup (Top 10)</h3>
@@ -335,17 +619,24 @@ const AthenaQueryDashboard = () => {
 
         {/* Workgroup Data Usage */}
         <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <h3 className="text-xl font-semibold mb-4">Data Usage by Workgroup</h3>
+          <h3 className="text-xl font-semibold mb-4">Data Usage by Workgroup (TB)</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={workgroupStats} layout="vertical">
+            <BarChart data={workgroupDataUsage} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis type="number" stroke="#94a3b8" tick={{ fill: '#94a3b8' }} />
-              <YAxis type="category" dataKey="name" stroke="#94a3b8" tick={{ fill: '#94a3b8' }} />
+              <YAxis 
+                type="category" 
+                dataKey="name" 
+                stroke="#94a3b8" 
+                tick={{ fill: '#94a3b8', fontSize: 11 }}
+                width={150}
+              />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
                 labelStyle={{ color: '#cbd5e1' }}
+                formatter={(value) => `${Number(value).toFixed(2)} TB`}
               />
-              <Bar dataKey="data" fill="#f59e0b" name="Data (MB)" />
+              <Bar dataKey="data" fill="#f59e0b" name="Data (TB)" />
             </BarChart>
           </ResponsiveContainer>
         </div>
