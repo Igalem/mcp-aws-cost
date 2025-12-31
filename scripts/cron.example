@@ -1,0 +1,34 @@
+# Example cron configuration for daily Athena query fetch
+#
+# This script fetches query execution data from AWS Athena API
+# for all workgroups and stores it in PostgreSQL database.
+#
+# Setup instructions:
+# 1. Edit this file and update the path to your Python virtual environment
+# 2. Update the path to the daily_fetch_queries.py script
+# 3. Copy the cron entry below to your crontab:
+#    crontab -e
+# 4. Paste the cron entry and save
+
+# Run daily at 1:00 AM UTC (adjust timezone as needed)
+# Format: minute hour day month day-of-week command
+0 1 * * * /path/to/mcp-aws-cost/venv/bin/python /path/to/mcp-aws-cost/scripts/daily_fetch_queries.py >> /path/to/mcp-aws-cost/logs/daily_fetch.log 2>&1
+
+# Alternative: Run daily at 2:00 AM local time
+# 0 2 * * * cd /path/to/mcp-aws-cost && source venv/bin/activate && python scripts/daily_fetch_queries.py >> logs/daily_fetch.log 2>&1
+
+# To fetch a specific date manually (for testing or backfilling):
+# python scripts/daily_fetch_queries.py --date 2025-12-29
+
+# To fetch a date range (for backfilling historical data):
+# python scripts/daily_fetch_queries.py --start-date 2025-12-01 --end-date 2025-12-31
+
+# To fetch from a start date to yesterday:
+# python scripts/daily_fetch_queries.py --start-date 2025-12-01
+
+# To fetch for a specific workgroup:
+# python scripts/daily_fetch_queries.py --date 2025-12-29 --workgroup ETLs
+
+# To fetch a date range for a specific workgroup:
+# python scripts/daily_fetch_queries.py --start-date 2025-12-01 --end-date 2025-12-31 --workgroup ETLs
+

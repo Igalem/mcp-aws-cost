@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "aws-athena-cost": {
+      "command": "/Users/igal.emona/mcp-aws-cost/venv/bin/python",
+      "args": [
+        "/Users/igal.emona/mcp-aws-cost/run_server.py"
+      ],
+      "cwd": "/Users/igal.emona/mcp-aws-cost",
+      "env": {
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "PYTHONPATH": "/Users/igal.emona/mcp-aws-cost",
+        "POSTGRES_PASSWORD": "postgres"
+      }
+    }
+  }
+}
