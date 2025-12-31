@@ -11,6 +11,19 @@ const AthenaQueryDashboard = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [selectedWorkgroup, setSelectedWorkgroup] = useState('all');
   const [selectedWorkgroupLine, setSelectedWorkgroupLine] = useState(null); // For filtering workgroup lines
+  
+  // Date range filtering
+  const getDefaultDateRange = () => {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 13); // Last 14 days default
+    return {
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0]
+    };
+  };
+  
+  const [dateRange, setDateRange] = useState(getDefaultDateRange());
 
   // Fetch data from backend API
   useEffect(() => {
@@ -59,12 +72,52 @@ const AthenaQueryDashboard = () => {
     );
   };
 
-  // Filter queries by selected workgroup
+  // Filter queries by selected workgroup and date range
   const getFilteredQueries = () => {
-    if (selectedWorkgroup === 'all') {
-      return queries;
+    let filtered = queries;
+    
+    // Filter by workgroup
+    if (selectedWorkgroup !== 'all') {
+      filtered = filtered.filter(q => q.workgroup === selectedWorkgroup);
     }
-    return queries.filter(q => q.workgroup === selectedWorkgroup);
+    
+    // Filter by date range
+    if (dateRange.startDate && dateRange.endDate) {
+      filtered = filtered.filter(q => {
+        const queryDate = new Date(q.date);
+        const startDate = new Date(dateRange.startDate);
+        const endDate = new Date(dateRange.endDate);
+        endDate.setHours(23, 59, 59, 999); // Include the entire end date
+        return queryDate >= startDate && queryDate <= endDate;
+      });
+    }
+    
+    return filtered;
+  };
+  
+  // Quick date range selectors
+  const setQuickDateRange = (range) => {
+    const endDate = new Date();
+    const startDate = new Date();
+    
+    switch (range) {
+      case '1D':
+        startDate.setDate(startDate.getDate() - 1);
+        break;
+      case '1W':
+        startDate.setDate(startDate.getDate() - 7);
+        break;
+      case '1M':
+        startDate.setMonth(startDate.getMonth() - 1);
+        break;
+      default:
+        return;
+    }
+    
+    setDateRange({
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0]
+    });
   };
 
   // Aggregate data for visualizations
@@ -81,7 +134,6 @@ const AthenaQueryDashboard = () => {
     // Sort by date chronologically (oldest to newest) and convert MB to TB
     return Object.values(dailyMap)
       .sort((a, b) => new Date(a.date) - new Date(b.date))
-      .slice(-14) // Last 14 days
       .map(day => ({
         ...day,
         data_scanned: day.data_scanned / (1024 * 1024) // Convert MB to TB
@@ -146,12 +198,16 @@ const AthenaQueryDashboard = () => {
       .slice(0, 10)
       .map(([name]) => name);
     
-    // Get last 14 days
+    // Get dates in range
     const dates = [];
-    for (let i = 13; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      dates.push(date.toISOString().split('T')[0]);
+    if (dateRange.startDate && dateRange.endDate) {
+      const start = new Date(dateRange.startDate);
+      const end = new Date(dateRange.endDate);
+      const current = new Date(start);
+      while (current <= end) {
+        dates.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
     }
     
     // Build data structure: array of { date, workgroup1: count, workgroup2: count, ... }
@@ -191,12 +247,16 @@ const AthenaQueryDashboard = () => {
       .slice(0, 10)
       .map(([name]) => name);
     
-    // Get last 14 days
+    // Get dates in range
     const dates = [];
-    for (let i = 13; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      dates.push(date.toISOString().split('T')[0]);
+    if (dateRange.startDate && dateRange.endDate) {
+      const start = new Date(dateRange.startDate);
+      const end = new Date(dateRange.endDate);
+      const current = new Date(start);
+      while (current <= end) {
+        dates.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
     }
     
     // Build data structure: array of { date, workgroup1: tb, workgroup2: tb, ... }
@@ -331,6 +391,16 @@ const AthenaQueryDashboard = () => {
 
   const visibleWorkgroups = getVisibleWorkgroups();
 
+  // Format date range for display
+  const getDateRangeDisplay = () => {
+    if (!dateRange.startDate || !dateRange.endDate) return '';
+    const start = new Date(dateRange.startDate);
+    const end = new Date(dateRange.endDate);
+    const startStr = `${start.getMonth() + 1}/${start.getDate()}/${start.getFullYear()}`;
+    const endStr = `${end.getMonth() + 1}/${end.getDate()}/${end.getFullYear()}`;
+    return `${startStr} - ${endStr}`;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-center">
@@ -361,23 +431,72 @@ const AthenaQueryDashboard = () => {
             <span>Ask AI</span>
           </button>
         </div>
-        {/* Workgroup Filter */}
-        <div className="flex items-center gap-3">
-          <Filter className="text-slate-400" size={20} />
-          <label htmlFor="workgroup-filter" className="text-slate-400 text-sm font-medium">
-            Filter by Workgroup:
-          </label>
-          <select
-            id="workgroup-filter"
-            value={selectedWorkgroup}
-            onChange={(e) => setSelectedWorkgroup(e.target.value)}
-            className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 min-w-[200px]"
-          >
-            <option value="all">All Workgroups</option>
-            {getWorkgroups().map(wg => (
-              <option key={wg} value={wg}>{wg}</option>
-            ))}
-          </select>
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Workgroup Filter */}
+          <div className="flex items-center gap-3">
+            <Filter className="text-slate-400" size={20} />
+            <label htmlFor="workgroup-filter" className="text-slate-400 text-sm font-medium">
+              Workgroup:
+            </label>
+            <select
+              id="workgroup-filter"
+              value={selectedWorkgroup}
+              onChange={(e) => setSelectedWorkgroup(e.target.value)}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 min-w-[200px]"
+            >
+              <option value="all">All Workgroups</option>
+              {getWorkgroups().map(wg => (
+                <option key={wg} value={wg}>{wg}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date Range Filter */}
+          <div className="flex items-center gap-3">
+            <Calendar className="text-slate-400" size={20} />
+            <label htmlFor="start-date" className="text-slate-400 text-sm font-medium">
+              Date Range:
+            </label>
+            <input
+              type="date"
+              id="start-date"
+              value={dateRange.startDate}
+              onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+            <span className="text-slate-400">to</span>
+            <input
+              type="date"
+              id="end-date"
+              value={dateRange.endDate}
+              onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          {/* Quick Date Selectors */}
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 text-sm font-medium">Quick:</span>
+            <button
+              onClick={() => setQuickDateRange('1D')}
+              className="bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm transition-colors"
+            >
+              1D
+            </button>
+            <button
+              onClick={() => setQuickDateRange('1W')}
+              className="bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm transition-colors"
+            >
+              1W
+            </button>
+            <button
+              onClick={() => setQuickDateRange('1M')}
+              className="bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm transition-colors"
+            >
+              1M
+            </button>
+          </div>
         </div>
       </div>
 
@@ -420,7 +539,7 @@ const AthenaQueryDashboard = () => {
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Query Trend */}
         <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-          <h3 className="text-xl font-semibold mb-4">Query Trend (Last 14 Days)</h3>
+          <h3 className="text-xl font-semibold mb-4">Query Trend ({getDateRangeDisplay()})</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={dailyStats}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
