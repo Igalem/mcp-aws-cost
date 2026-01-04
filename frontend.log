@@ -3,7 +3,12 @@
 > vite
 
 
-  VITE v7.3.0  ready in 380 ms
+  VITE v7.3.0  ready in 519 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
+8:13:51 PM [vite] (client) hmr update /src/index.css, /src/components/DatePicker.jsx
+8:13:55 PM [vite] (client) hmr update /src/index.css, /src/components/DatePicker.jsx
+8:14:02 PM [vite] (client) hmr update /src/index.css, /src/components/DatePicker.jsx
+8:14:09 PM [vite] (client) hmr update /src/index.css, /src/components/DatePicker.jsx
+8:14:14 PM [vite] (client) hmr update /src/index.css, /src/components/DatePicker.jsx

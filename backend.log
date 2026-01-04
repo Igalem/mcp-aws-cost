@@ -1,9 +1,17 @@
-INFO:     Started server process [41614]
+INFO:     Started server process [58428]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:60411 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60423 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60426 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60423 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60426 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63284 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63303 - "GET /api/dashboard/date-range HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63304 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63303 - "GET /api/dashboard/date-range HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63308 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63308 - "GET /api/dashboard/date-range HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63303 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63308 - "GET /api/dashboard/date-range HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63304 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63622 - "GET /api/dashboard/date-range HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63623 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63622 - "GET /api/dashboard/date-range HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63629 - "GET /api/dashboard/stats HTTP/1.1" 200 OK

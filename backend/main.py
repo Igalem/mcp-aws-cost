@@ -127,6 +127,51 @@ async def get_workgroups():
         raise HTTPException(status_code=500, detail=f"Error fetching workgroups: {str(e)}")
 
 
+@app.get("/api/dashboard/date-range")
+async def get_date_range():
+    """Get the minimum start_time and maximum end_time from the database."""
+    try:
+        query = """
+        SELECT 
+            MIN(start_time) as min_start_time,
+            MAX(end_time) as max_end_time
+        FROM queries
+        WHERE start_time IS NOT NULL
+        """
+        df = query_database(query)
+        
+        if df.empty or df.iloc[0]['min_start_time'] is None:
+            return {
+                "min_date": None,
+                "max_date": None
+            }
+        
+        min_start_time = df.iloc[0]['min_start_time']
+        max_end_time = df.iloc[0]['max_end_time']
+        
+        # Format dates as YYYY-MM-DD strings
+        min_date = min_start_time.strftime('%Y-%m-%d') if hasattr(min_start_time, 'strftime') else str(min_start_time).split(' ')[0]
+        
+        # Use max_end_time if available, otherwise use min_start_time as fallback
+        if max_end_time is not None:
+            max_date = max_end_time.strftime('%Y-%m-%d') if hasattr(max_end_time, 'strftime') else str(max_end_time).split(' ')[0]
+        else:
+            # If no end_time exists, use min_start_time as max_date (fallback)
+            max_date = min_date
+        
+        return {
+            "min_date": min_date,
+            "max_date": max_date
+        }
+    except Exception as e:
+        print(f"Error fetching date range: {e}")
+        traceback.print_exc()
+        return {
+            "min_date": None,
+            "max_date": None
+        }
+
+
 @app.get("/api/queries/expensive")
 async def get_expensive_queries(limit: int = 10):
     """Get most expensive queries by cost."""

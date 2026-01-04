@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { MessageSquare, Database, TrendingUp, Users, Calendar, Send, X, Filter } from 'lucide-react';
+import DatePicker from './DatePicker';
 
 const AthenaQueryDashboard = () => {
   const [queries, setQueries] = useState([]);
@@ -11,6 +12,9 @@ const AthenaQueryDashboard = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [selectedWorkgroup, setSelectedWorkgroup] = useState('all');
   const [selectedWorkgroupLine, setSelectedWorkgroupLine] = useState(null); // For filtering workgroup lines
+  
+  // Date range limits from database
+  const [dateRangeLimits, setDateRangeLimits] = useState({ minDate: null, maxDate: null });
   
   // Date range filtering
   const getDefaultDateRange = () => {
@@ -24,6 +28,47 @@ const AthenaQueryDashboard = () => {
   };
   
   const [dateRange, setDateRange] = useState(getDefaultDateRange());
+
+  // Fetch date range limits from backend API
+  useEffect(() => {
+    const fetchDateRangeLimits = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/dashboard/date-range');
+        if (response.ok) {
+          const data = await response.json();
+          const limits = {
+            minDate: data.min_date || null,
+            maxDate: data.max_date || null
+          };
+          setDateRangeLimits(limits);
+          
+          // Update date range to respect limits if current range is outside bounds
+          if (limits.minDate || limits.maxDate) {
+            setDateRange(prev => {
+              let startDate = prev.startDate;
+              let endDate = prev.endDate;
+              
+              if (limits.minDate && startDate < limits.minDate) {
+                startDate = limits.minDate;
+              }
+              if (limits.maxDate && endDate > limits.maxDate) {
+                endDate = limits.maxDate;
+              }
+              if (limits.minDate && endDate < limits.minDate) {
+                endDate = limits.minDate;
+              }
+              
+              return { startDate, endDate };
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching date range limits:', error);
+      }
+    };
+
+    fetchDateRangeLimits();
+  }, []);
 
   // Fetch data from backend API
   useEffect(() => {
@@ -114,9 +159,23 @@ const AthenaQueryDashboard = () => {
         return;
     }
     
+    // Clamp dates to the available range
+    let startDateStr = startDate.toISOString().split('T')[0];
+    let endDateStr = endDate.toISOString().split('T')[0];
+    
+    if (dateRangeLimits.minDate && startDateStr < dateRangeLimits.minDate) {
+      startDateStr = dateRangeLimits.minDate;
+    }
+    if (dateRangeLimits.maxDate && endDateStr > dateRangeLimits.maxDate) {
+      endDateStr = dateRangeLimits.maxDate;
+    }
+    if (dateRangeLimits.minDate && endDateStr < dateRangeLimits.minDate) {
+      endDateStr = dateRangeLimits.minDate;
+    }
+    
     setDateRange({
-      startDate: startDate.toISOString().split('T')[0],
-      endDate: endDate.toISOString().split('T')[0]
+      startDate: startDateStr,
+      endDate: endDateStr
     });
   };
 
@@ -458,20 +517,22 @@ const AthenaQueryDashboard = () => {
             <label htmlFor="start-date" className="text-slate-400 text-sm font-medium">
               Date Range:
             </label>
-            <input
-              type="date"
+            <DatePicker
               id="start-date"
               value={dateRange.startDate}
               onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              minDate={dateRangeLimits.minDate || undefined}
+              maxDate={dateRangeLimits.maxDate || undefined}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 w-[140px] cursor-pointer"
             />
             <span className="text-slate-400">to</span>
-            <input
-              type="date"
+            <DatePicker
               id="end-date"
               value={dateRange.endDate}
               onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              minDate={dateRangeLimits.minDate || undefined}
+              maxDate={dateRangeLimits.maxDate || undefined}
+              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 w-[140px] cursor-pointer"
             />
           </div>
 
