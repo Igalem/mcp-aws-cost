@@ -101,6 +101,99 @@ def extract_query_features(query_text: str) -> Dict[str, Any]:
     return features
 
 
+def extract_primary_database(query_text: str) -> Optional[str]:
+    """
+    Extract the primary database name from a query text.
+    
+    Looks for database.table patterns in FROM, JOIN, INSERT INTO, CREATE TABLE, etc.
+    Returns the first database found, which is typically the primary database.
+    Handles both quoted (backticks) and unquoted identifiers.
+    
+    Filters out invalid matches like table aliases, single characters, and numbers.
+    
+    Args:
+        query_text: The SQL query text
+        
+    Returns:
+        Primary database name, or None if not found
+        
+    Examples:
+        >>> extract_primary_database("SELECT * FROM db1.table1")
+        'db1'
+        >>> extract_primary_database("SELECT * FROM `db1`.`table1`")
+        'db1'
+        >>> extract_primary_database("CREATE TABLE db1.schema1.table1")
+        'db1'
+    """
+    if not query_text or (pd is not None and pd.isna(query_text)):
+        return None
+    
+    query_str = str(query_text)
+    
+    # Minimum database name length (exclude single chars, numbers, short aliases)
+    MIN_DB_LENGTH = 2
+    
+    # Pattern to match database.table or database.schema.table
+    # Handles both quoted (backticks) and unquoted identifiers
+    # Matches: db.table, `db`.`table`, db.schema.table, `db`.`schema`.`table`
+    # Uses word boundaries for unquoted identifiers
+    unquoted_pattern = r'\b([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)(?:\.[a-zA-Z0-9_]+)?'
+    quoted_pattern = r'`([^`]+)`\.`([^`]+)`(?:\.`[^`]+`)?'
+    
+    # Look for database.table patterns in common SQL contexts
+    # Priority order: FROM, INSERT INTO, CREATE TABLE, JOIN, UPDATE, DELETE
+    # Avoid matching after closing parentheses (likely aliases) or after AS keyword
+    contexts = [
+        (r'FROM\s+(?!\()', unquoted_pattern),           # FROM db.table (but not FROM (subquery))
+        (r'FROM\s+(?!\()', quoted_pattern),             # FROM `db`.`table`
+        (r'INSERT\s+INTO\s+', unquoted_pattern),        # INSERT INTO db.table
+        (r'INSERT\s+INTO\s+', quoted_pattern),          # INSERT INTO `db`.`table`
+        (r'CREATE\s+TABLE\s+', unquoted_pattern),       # CREATE TABLE db.table
+        (r'CREATE\s+TABLE\s+', quoted_pattern),         # CREATE TABLE `db`.`table`
+        (r'CREATE\s+EXTERNAL\s+TABLE\s+', unquoted_pattern),  # CREATE EXTERNAL TABLE db.table
+        (r'CREATE\s+EXTERNAL\s+TABLE\s+', quoted_pattern),     # CREATE EXTERNAL TABLE `db`.`table`
+        (r'(?:INNER\s+|LEFT\s+|RIGHT\s+|FULL\s+)?JOIN\s+', unquoted_pattern),  # JOIN db.table
+        (r'(?:INNER\s+|LEFT\s+|RIGHT\s+|FULL\s+)?JOIN\s+', quoted_pattern),    # JOIN `db`.`table`
+        (r'UPDATE\s+', unquoted_pattern),                # UPDATE db.table
+        (r'UPDATE\s+', quoted_pattern),                 # UPDATE `db`.`table`
+        (r'DELETE\s+FROM\s+', unquoted_pattern),        # DELETE FROM db.table
+        (r'DELETE\s+FROM\s+', quoted_pattern),          # DELETE FROM `db`.`table`
+    ]
+    
+    for prefix, pattern in contexts:
+        full_pattern = prefix + pattern if prefix else pattern
+        match = re.search(full_pattern, query_str, re.IGNORECASE)
+        if match:
+            database = match.group(1)
+            # Remove backticks if present
+            database = database.strip('`')
+            
+            # Skip if database name is too short (likely an alias)
+            if len(database) < MIN_DB_LENGTH:
+                continue
+            
+            # Skip if database is purely numeric (likely not a database name)
+            if database.isdigit():
+                continue
+            
+            # Skip common SQL keywords that might be matched incorrectly
+            sql_keywords = {'SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 
+                          'FULL', 'OUTER', 'ON', 'GROUP', 'ORDER', 'HAVING', 'INSERT',
+                          'INTO', 'UPDATE', 'DELETE', 'CREATE', 'TABLE', 'EXTERNAL',
+                          'UNION', 'EXCEPT', 'INTERSECT', 'WITH', 'AS', 'CASE', 'WHEN',
+                          'IF', 'NOT', 'EXISTS', 'SET', 'VALUES', 'ALTER', 'DROP',
+                          'UNLOAD', 'PARTITION', 'PARTITIONED', 'ROW', 'FORMAT', 'STORED',
+                          'LOCATION', 'TBLPROPERTIES'}
+            
+            if database and database.upper() not in sql_keywords:
+                # Additional validation: database name should be a valid identifier
+                # Must start with a letter or underscore, not a number
+                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', database):
+                    return database
+    
+    return None
+
+
 def normalize_query(query: str) -> str:
     """
     Normalize a query by removing date-specific parts to identify same query patterns.

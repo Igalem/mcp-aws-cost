@@ -11,7 +11,8 @@ import pandas as pd
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Generator, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ..utils.database import get_sqlalchemy_engine, query_database, init_database, get_db_connection
+from ..utils.database import get_sqlalchemy_engine, query_database, init_database, get_db_connection, calculate_athena_cost
+from ..utils.query_parser import extract_primary_database
 import psycopg2
 
 
@@ -238,6 +239,17 @@ def _get_query_execution_details(
             stats = execution.get("Statistics", {})
             data_scanned_bytes = stats.get("DataScannedInBytes", 0)
             
+            # Extract end_time (CompletionDateTime)
+            end_time = status.get("CompletionDateTime")
+            if end_time and end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            
+            # Extract runtime in milliseconds and convert to minutes
+            total_execution_time_ms = stats.get("TotalExecutionTimeInMillis")
+            runtime_minutes = None
+            if total_execution_time_ms is not None:
+                runtime_minutes = total_execution_time_ms / 60000.0  # Convert milliseconds to minutes
+            
             # Extract engine version
             engine_version = execution.get("EngineVersion", {}).get("SelectedEngineVersion", "AUTO")
             if not engine_version:
@@ -249,6 +261,8 @@ def _get_query_execution_details(
             queries.append({
                 "query_execution_id": query_execution_id,
                 "start_time": start_time,
+                "end_time": end_time,
+                "runtime_minutes": runtime_minutes,
                 "state": state,
                 "data_scanned_bytes": data_scanned_bytes,
                 "engine_version": engine_version,
@@ -281,6 +295,18 @@ def _get_query_execution_details(
                 state = status.get("State", "UNKNOWN")
                 stats = execution.get("Statistics", {})
                 data_scanned_bytes = stats.get("DataScannedInBytes", 0)
+                
+                # Extract end_time (CompletionDateTime)
+                end_time = status.get("CompletionDateTime")
+                if end_time and end_time.tzinfo is None:
+                    end_time = end_time.replace(tzinfo=timezone.utc)
+                
+                # Extract runtime in milliseconds and convert to minutes
+                total_execution_time_ms = stats.get("TotalExecutionTimeInMillis")
+                runtime_minutes = None
+                if total_execution_time_ms is not None:
+                    runtime_minutes = total_execution_time_ms / 60000.0  # Convert milliseconds to minutes
+                
                 engine_version = execution.get("EngineVersion", {}).get("SelectedEngineVersion", "AUTO")
                 if not engine_version:
                     engine_version = "AUTO"
@@ -289,6 +315,8 @@ def _get_query_execution_details(
                 queries.append({
                     "query_execution_id": query_id,
                     "start_time": start_time,
+                    "end_time": end_time,
+                    "runtime_minutes": runtime_minutes,
                     "state": state,
                     "data_scanned_bytes": data_scanned_bytes,
                     "engine_version": engine_version,
@@ -393,30 +421,54 @@ def insert_queries_to_database(queries: List[Dict[str, Any]], commit: bool = Tru
         
         values = []
         for q in queries:
+            # Extract database from query_text
+            query_text = _strip_null_bytes(str(q.get("query_text", "")))
+            database = None
+            if query_text:
+                database = extract_primary_database(query_text)
+                if database:
+                    database = _strip_null_bytes(database)
+            
+            # Calculate cost from data_scanned_bytes
+            data_scanned_bytes = int(q["data_scanned_bytes"]) if q["data_scanned_bytes"] else 0
+            cost = calculate_athena_cost(data_scanned_bytes)
+            
+            # Extract end_time and runtime
+            end_time = q.get("end_time")
+            runtime_minutes = q.get("runtime_minutes")
+            
             values.append((
                 _strip_null_bytes(str(q["query_execution_id"])),
                 q["start_time"],
+                end_time,
+                runtime_minutes,
                 _strip_null_bytes(str(q["state"])),
-                int(q["data_scanned_bytes"]) if q["data_scanned_bytes"] else 0,
+                data_scanned_bytes,
                 _strip_null_bytes(str(q.get("engine_version", "AUTO"))),
-                _strip_null_bytes(str(q.get("query_text", ""))),
+                query_text,
                 _strip_null_bytes(str(q.get("status_reason"))) if q.get("status_reason") else None,
-                _strip_null_bytes(str(q.get("workgroup"))) if q.get("workgroup") else None
+                _strip_null_bytes(str(q.get("workgroup"))) if q.get("workgroup") else None,
+                database,
+                cost
             ))
         
         cursor.executemany("""
             INSERT INTO queries (
-                query_execution_id, start_time, state, 
-                data_scanned_bytes, engine_version, query_text, status_reason, workgroup
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                query_execution_id, start_time, end_time, runtime, state, 
+                data_scanned_bytes, engine_version, query_text, status_reason, workgroup, database, cost
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (query_execution_id) DO UPDATE SET
                 start_time = EXCLUDED.start_time,
+                end_time = EXCLUDED.end_time,
+                runtime = EXCLUDED.runtime,
                 state = EXCLUDED.state,
                 data_scanned_bytes = EXCLUDED.data_scanned_bytes,
                 engine_version = EXCLUDED.engine_version,
                 query_text = EXCLUDED.query_text,
                 status_reason = EXCLUDED.status_reason,
-                workgroup = EXCLUDED.workgroup
+                workgroup = EXCLUDED.workgroup,
+                database = EXCLUDED.database,
+                cost = EXCLUDED.cost
         """, values)
         
         inserted_count = cursor.rowcount
@@ -499,12 +551,16 @@ def fetch_athena_queries(
                 SELECT 
                     query_execution_id,
                     start_time,
+                    end_time,
+                    runtime,
                     state,
                     data_scanned_bytes,
                     engine_version,
                     query_text,
                     status_reason,
-                    workgroup
+                    workgroup,
+                    database,
+                    cost
                 FROM queries
                 WHERE DATE(start_time) BETWEEN %s AND %s
                     AND workgroup = %s
@@ -518,12 +574,16 @@ def fetch_athena_queries(
                 SELECT 
                     query_execution_id,
                     start_time,
+                    end_time,
+                    runtime,
                     state,
                     data_scanned_bytes,
                     engine_version,
                     query_text,
                     status_reason,
-                    workgroup
+                    workgroup,
+                    database,
+                    cost
                 FROM queries
                 WHERE DATE(start_time) BETWEEN %s AND %s
                 ORDER BY start_time, workgroup NULLS LAST
@@ -543,8 +603,8 @@ def fetch_athena_queries(
         else:
             # Create empty CSV with headers
             df_empty = pd.DataFrame(columns=[
-                'query_execution_id', 'start_time', 'state', 
-                'data_scanned_bytes', 'engine_version', 'query_text', 'status_reason', 'workgroup'
+                'query_execution_id', 'start_time', 'end_time', 'runtime', 'state', 
+                'data_scanned_bytes', 'engine_version', 'query_text', 'status_reason', 'workgroup', 'database', 'cost'
             ])
             df_empty.to_csv(filename, index=False)
         

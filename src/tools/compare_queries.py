@@ -64,12 +64,16 @@ def compare_expensive_queries(
                     SELECT 
                         query_execution_id,
                         start_time,
+                        end_time,
+                        runtime,
                         state,
                         data_scanned_bytes,
                         engine_version,
                         query_text,
                         status_reason,
-                        workgroup
+                        workgroup,
+                        database,
+                        cost
                     FROM queries
                     WHERE DATE(start_time) BETWEEN %s AND %s
                         AND workgroup = %s
@@ -81,12 +85,16 @@ def compare_expensive_queries(
                     SELECT 
                         query_execution_id,
                         start_time,
+                        end_time,
+                        runtime,
                         state,
                         data_scanned_bytes,
                         engine_version,
                         query_text,
                         status_reason,
-                        workgroup
+                        workgroup,
+                        database,
+                        cost
                     FROM queries
                     WHERE DATE(start_time) BETWEEN %s AND %s
                     ORDER BY start_time, workgroup NULLS LAST

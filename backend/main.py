@@ -129,18 +129,20 @@ async def get_workgroups():
 
 @app.get("/api/queries/expensive")
 async def get_expensive_queries(limit: int = 10):
-    """Get most expensive queries by data scanned."""
+    """Get most expensive queries by cost."""
     try:
         query = """
         SELECT 
             query_execution_id,
             start_time,
             workgroup,
+            database,
             data_scanned_bytes / (1024 * 1024 * 1024) as data_scanned_gb,
+            cost,
             LEFT(query_text, 200) as query_preview
         FROM queries
-        WHERE state = 'SUCCEEDED'
-        ORDER BY data_scanned_bytes DESC
+        WHERE state = 'SUCCEEDED' AND cost IS NOT NULL
+        ORDER BY cost DESC
         LIMIT %s
         """
         df = query_database(query, params=(limit,))
@@ -151,7 +153,9 @@ async def get_expensive_queries(limit: int = 10):
                 'query_execution_id': row['query_execution_id'],
                 'start_time': row['start_time'].isoformat() if hasattr(row['start_time'], 'isoformat') else str(row['start_time']),
                 'workgroup': row['workgroup'],
+                'database': row['database'],
                 'data_scanned_gb': float(row['data_scanned_gb']) if row['data_scanned_gb'] else 0,
+                'cost': float(row['cost']) if row['cost'] is not None else 0,
                 'query_preview': row['query_preview'] if row['query_preview'] else ''
             })
         

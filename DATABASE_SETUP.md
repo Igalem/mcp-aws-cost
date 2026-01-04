@@ -140,22 +140,67 @@ Note: Duplicate `query_execution_id` values will be skipped (primary key constra
 
 ## Database Schema
 
-The `queries` table structure:
-- `query_execution_id` (VARCHAR, PRIMARY KEY)
-- `start_time` (TIMESTAMP WITH TIME ZONE, indexed)
-- `state` (VARCHAR, indexed)
-- `data_scanned_bytes` (BIGINT, indexed)
-- `engine_version` (VARCHAR)
-- `query_text` (TEXT)
-- `status_reason` (TEXT) - Error message for failed queries (from Athena's StateChangeReason)
-- `workgroup` (VARCHAR, indexed) - Athena workgroup name
-- `created_at` (TIMESTAMP WITH TIME ZONE)
+The `queries` table structure (columns ordered logically):
 
-Indexes:
-- `idx_start_time_date` - Fast date filtering
-- `idx_data_scanned_bytes` - Fast sorting by cost
+### Identifiers
+- `query_execution_id` (VARCHAR(255), PRIMARY KEY) - Unique query execution ID from AWS Athena
+
+### Timestamps
+- `start_time` (TIMESTAMP WITH TIME ZONE, indexed, NOT NULL) - Query submission time
+- `end_time` (TIMESTAMP WITH TIME ZONE, indexed) - Query completion time
+- `runtime` (NUMERIC(12, 4), indexed) - Query execution time in minutes
+
+### Status
+- `state` (VARCHAR(50), indexed, NOT NULL) - Query state (SUCCEEDED, FAILED, CANCELLED, etc.)
+- `status_reason` (TEXT) - Error message for failed queries (from Athena's StateChangeReason)
+
+### Performance Metrics
+- `data_scanned_bytes` (BIGINT, indexed, NOT NULL) - Amount of data scanned in bytes
+- `cost` (NUMERIC(15, 6), indexed) - Calculated cost in USD (based on $5 per TB scanned)
+
+### Metadata
+- `workgroup` (VARCHAR(100), indexed) - Athena workgroup name
+- `database` (VARCHAR(255), indexed) - Primary database name extracted from query text
+- `engine_version` (VARCHAR(50)) - Athena engine version used
+
+### Content
+- `query_text` (TEXT) - The SQL query text
+
+### System
+- `created_at` (TIMESTAMP WITH TIME ZONE) - Record creation timestamp (auto-generated)
+
+### Indexes
+- `idx_start_time` - Fast date filtering
+- `idx_end_time` - Fast completion time filtering
+- `idx_runtime` - Fast sorting by execution time
 - `idx_state` - Fast state filtering
+- `idx_data_scanned_bytes` - Fast sorting by data scanned
+- `idx_cost` - Fast sorting by cost
 - `idx_workgroup` - Fast workgroup filtering
+- `idx_database` - Fast database filtering
+
+### Database Field
+
+The `database` field contains the primary database name extracted from the query text. The extraction looks for `database.table` patterns in common SQL contexts (FROM, INSERT INTO, CREATE TABLE, JOIN, etc.) and returns the first database found. This field is automatically populated when queries are inserted or imported.
+
+### Timestamp Fields
+
+The `end_time` and `runtime` fields provide query execution timing information:
+
+- **end_time**: Query completion timestamp extracted from AWS Athena's `CompletionDateTime` field. This field is `NULL` for queries that haven't completed yet (e.g., RUNNING, QUEUED states).
+
+- **runtime**: Query execution duration in minutes, calculated from AWS Athena's `TotalExecutionTimeInMillis` field. The value is converted from milliseconds to minutes (ms / 60000). This field is `NULL` for queries that don't have execution time data available.
+
+Both fields are automatically populated when queries are fetched from AWS Athena API.
+
+### Cost Field
+
+The `cost` field contains the calculated cost in USD based on AWS Athena pricing:
+- **Formula**: `cost = (data_scanned_bytes / 1_000_000_000_000) * 5`
+- **Pricing**: $5 per TB scanned
+- **Precision**: NUMERIC(15, 6) supports costs up to $999,999,999.999999
+
+The cost is automatically calculated when queries are inserted or imported. For existing rows, cost is calculated during database initialization if the column is newly added.
 
 ### Status Reason Field
 
