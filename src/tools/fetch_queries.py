@@ -8,25 +8,65 @@ import boto3
 import csv
 import os
 import pandas as pd
+import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Generator, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from botocore.exceptions import ClientError
 from ..utils.database import get_sqlalchemy_engine, query_database, init_database, get_db_connection, calculate_athena_cost
 from ..utils.query_parser import extract_primary_database
 import psycopg2
 
 
 def list_query_ids(athena_client, workgroup: str):
-    """Generator that yields query execution IDs from a workgroup."""
+    """
+    Generator that yields query execution IDs from a workgroup.
+    
+    Handles AWS API rate limiting with retries and exponential backoff.
+    """
     next_token = None
+    max_retries = 5
+    base_delay = 1  # Start with 1 second delay
+    
     while True:
         kwargs = {"WorkGroup": workgroup, "MaxResults": 50}
         if next_token:
             kwargs["NextToken"] = next_token
-        resp = athena_client.list_query_executions(**kwargs)
-        for qid in resp.get("QueryExecutionIds", []):
-            yield qid
-        next_token = resp.get("NextToken")
+        
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                resp = athena_client.list_query_executions(**kwargs)
+                query_ids = resp.get("QueryExecutionIds", [])
+                
+                for qid in query_ids:
+                    yield qid
+                
+                next_token = resp.get("NextToken")
+                
+                # Small delay between pages to avoid rate limits
+                if next_token:
+                    time.sleep(0.1)  # 100ms delay between pages
+                
+                break  # Success, exit retry loop
+                
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', '')
+                if error_code == 'ThrottlingException' and retry_count < max_retries - 1:
+                    # Exponential backoff for throttling
+                    delay = base_delay * (2 ** retry_count)
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Rate limit hit for workgroup '{workgroup}', retrying in {delay}s (attempt {retry_count + 1}/{max_retries})")
+                    time.sleep(delay)
+                    retry_count += 1
+                else:
+                    # Other errors or max retries reached
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error listing query executions for workgroup '{workgroup}': {e}")
+                    raise
+        
         if not next_token:
             break
 
@@ -96,11 +136,29 @@ def _process_single_workgroup(
             
             # Process in batches of 50 (AWS limit)
             if len(query_ids_batch) >= 50:
-                queries = _get_query_execution_details(athena_client, query_ids_batch, start_dt, end_dt)
-                matched_in_batch = len(queries)
-                workgroup_matched_count += matched_in_batch
-                all_queries.extend(queries)
-                query_ids_batch = []
+                try:
+                    queries = _get_query_execution_details(athena_client, query_ids_batch, start_dt, end_dt)
+                    matched_in_batch = len(queries)
+                    workgroup_matched_count += matched_in_batch
+                    all_queries.extend(queries)
+                    query_ids_batch = []
+                    # Small delay between batches to avoid rate limits
+                    time.sleep(0.05)  # 50ms delay between batches
+                except ClientError as e:
+                    error_code = e.response.get('Error', {}).get('Code', '')
+                    if error_code == 'ThrottlingException':
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Rate limit hit while fetching details for workgroup '{workgroup}', waiting 2s...")
+                        time.sleep(2)
+                        # Retry the batch
+                        queries = _get_query_execution_details(athena_client, query_ids_batch, start_dt, end_dt)
+                        matched_in_batch = len(queries)
+                        workgroup_matched_count += matched_in_batch
+                        all_queries.extend(queries)
+                        query_ids_batch = []
+                    else:
+                        raise
         
         # Process remaining queries
         if query_ids_batch:
@@ -110,8 +168,11 @@ def _process_single_workgroup(
             all_queries.extend(queries)
             
     except Exception as e:
-        # Log error will be handled by caller
-        pass
+        # Log error for debugging - don't silently fail
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error processing workgroup '{workgroup}': {e}", exc_info=True)
+        # Still return what we've collected so far
     finally:
         # Report progress for this workgroup
         if progress_callback and workgroup_query_ids_count > 0:
@@ -152,8 +213,10 @@ def fetch_query_executions_from_aws(
     end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
     
     if max_workers is None:
-        # Default to reasonable number of workers (AWS API rate limits are per-account, not per-workgroup)
-        max_workers = min(32, len(workgroups) + 4)
+        # Reduce default workers to avoid hitting AWS API rate limits
+        # AWS has rate limits on list_query_executions API calls
+        # Using fewer workers reduces concurrent API calls and prevents ThrottlingException
+        max_workers = min(16, len(workgroups) + 2)
     
     min_yield_size = min(50, batch_size // 10)  # Yield more frequently - every 50 queries or 10% of batch_size
     batch = []
@@ -188,7 +251,10 @@ def fetch_query_executions_from_aws(
                     batch = []
                     
             except Exception as e:
-                # Log error (will be handled by daily script's logging)
+                # Log error for debugging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error fetching queries from workgroup '{workgroup}': {e}", exc_info=True)
                 # Continue processing other workgroups
                 continue
     

@@ -1,7 +1,7 @@
-INFO:     Started server process [5948]
+INFO:     Started server process [27408]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:57494 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57516 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57519 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64129 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64147 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64150 - "GET /api/dashboard/stats HTTP/1.1" 200 OK
