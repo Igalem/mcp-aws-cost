@@ -42,12 +42,34 @@ async def root():
 
 
 @app.get("/api/dashboard/stats")
-async def get_dashboard_stats():
+async def get_dashboard_stats(start_date: Optional[str] = None, end_date: Optional[str] = None):
     """Get dashboard statistics from PostgreSQL database."""
     try:
-        # Get data from last 30 days
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=30)
+        # Use provided dates or default to last 30 days
+        if end_date:
+            # Parse YYYY-MM-DD format
+            try:
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            except ValueError:
+                # Try ISO format as fallback
+                end_date_obj = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            # Set to end of day
+            end_date_obj = end_date_obj.replace(hour=23, minute=59, second=59, microsecond=999999)
+        else:
+            end_date_obj = datetime.now()
+        
+        if start_date:
+            # Parse YYYY-MM-DD format
+            try:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+            except ValueError:
+                # Try ISO format as fallback
+                start_date_obj = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            # Set to start of day
+            start_date_obj = start_date_obj.replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start_date_obj = end_date_obj - timedelta(days=30)
+            start_date_obj = start_date_obj.replace(hour=0, minute=0, second=0, microsecond=0)
         
         # Query database for aggregated stats
         query = """
@@ -63,7 +85,7 @@ async def get_dashboard_stats():
         ORDER BY date DESC, workgroup
         """
         
-        df = query_database(query, params=(start_date, end_date))
+        df = query_database(query, params=(start_date_obj, end_date_obj))
         
         # Transform to match frontend format
         queries = []

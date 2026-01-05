@@ -5,7 +5,8 @@ import DatePicker from './DatePicker';
 
 const AthenaQueryDashboard = () => {
   const [queries, setQueries] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start with true for initial load
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -73,9 +74,26 @@ const AthenaQueryDashboard = () => {
   // Fetch data from backend API
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
+      // Only show full-screen loader on initial load
+      if (isInitialLoad) {
+        setLoading(true);
+      }
+      
       try {
-        const response = await fetch('http://localhost:8000/api/dashboard/stats');
+        // Build URL with date range parameters
+        let url = 'http://localhost:8000/api/dashboard/stats';
+        const params = new URLSearchParams();
+        if (dateRange.startDate) {
+          params.append('start_date', dateRange.startDate);
+        }
+        if (dateRange.endDate) {
+          params.append('end_date', dateRange.endDate);
+        }
+        if (params.toString()) {
+          url += '?' + params.toString();
+        }
+        
+        const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
           setQueries(data.queries || []);
@@ -91,11 +109,12 @@ const AthenaQueryDashboard = () => {
         setQueries(sampleData);
       } finally {
         setLoading(false);
+        setIsInitialLoad(false); // After first load, mark as not initial
       }
     };
 
     fetchData();
-  }, []);
+  }, [dateRange.startDate, dateRange.endDate]);
 
   const generateSampleData = () => {
     const workgroups = ['analytics', 'data-science', 'reporting', 'adhoc'];
@@ -126,14 +145,11 @@ const AthenaQueryDashboard = () => {
       filtered = filtered.filter(q => q.workgroup === selectedWorkgroup);
     }
     
-    // Filter by date range
+    // Filter by date range (compare date strings directly to avoid timezone issues)
     if (dateRange.startDate && dateRange.endDate) {
       filtered = filtered.filter(q => {
-        const queryDate = new Date(q.date);
-        const startDate = new Date(dateRange.startDate);
-        const endDate = new Date(dateRange.endDate);
-        endDate.setHours(23, 59, 59, 999); // Include the entire end date
-        return queryDate >= startDate && queryDate <= endDate;
+        const queryDateStr = q.date; // Already in YYYY-MM-DD format
+        return queryDateStr >= dateRange.startDate && queryDateStr <= dateRange.endDate;
       });
     }
     
