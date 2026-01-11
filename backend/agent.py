@@ -1,4 +1,4 @@
-"""AI Agent for AWS Athena Analytics using Claude API and MCP tools."""
+"""AI Agent for AWS Athena Analytics using OpenAI-compatible API (e.g. Ollama) and MCP tools."""
 
 import os
 import json
@@ -14,9 +14,9 @@ except ImportError:
     pass  # python-dotenv not installed, skip loading .env file
 
 try:
-    import anthropic
+    from openai import OpenAI
 except ImportError:
-    anthropic = None
+    OpenAI = None
 
 from src.tools.fetch_queries import fetch_athena_queries
 from src.tools.analyze_cost import analyze_cost_increase
@@ -24,137 +24,172 @@ from src.tools.compare_queries import compare_expensive_queries
 
 
 class AthenaAnalyticsAgent:
-    """AI Agent that uses Claude API to interact with users and call MCP tools."""
+    """AI Agent that uses OpenAI-compatible API to interact with users and call MCP tools."""
     
     def __init__(self):
         self.client = None
-        if anthropic:
-            api_key = os.getenv("ANTHROPIC_API_KEY")
-            if api_key:
-                self.client = anthropic.Anthropic(api_key=api_key)
         
-        # Define available tools for Claude
+        # Configure OpenAI client for local LLM (e.g., Ollama)
+        # Default to localhost:11434/v1 for Ollama if not specified
+        base_url = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
+        api_key = os.getenv("LLM_API_KEY", "ollama") # Ollama doesn't require key, but client might
+        self.model_name = os.getenv("LLM_MODEL_NAME", "llama3.1") # Default to llama3.1 which supports tools
+        
+        if OpenAI:
+            try:
+                self.client = OpenAI(
+                    base_url=base_url,
+                    api_key=api_key
+                )
+                print(f"Initialized OpenAI client with base_url={base_url}, model={self.model_name}")
+            except Exception as e:
+                print(f"Failed to initialize OpenAI client: {e}")
+                self.client = None
+        
+        # Define available tools for OpenAI format
         self.tools = [
             {
-                "name": "fetch_athena_queries",
-                "description": "Query Athena query execution data from PostgreSQL database and export to CSV. Use this when the user wants to fetch, export, or get query data.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "workgroup": {
-                            "type": "string",
-                            "description": "Athena workgroup name (optional - if not provided, queries all workgroups)"
+                "type": "function",
+                "function": {
+                    "name": "fetch_athena_queries",
+                    "description": "Query Athena query execution data from PostgreSQL database and export to CSV. Use this when the user wants to fetch, export, or get query data.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "workgroup": {
+                                "type": "string",
+                                "description": "Athena workgroup name (optional - if not provided, queries all workgroups)"
+                            },
+                            "start_date": {
+                                "type": "string",
+                                "description": "Start date in YYYY-MM-DD format",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            },
+                            "end_date": {
+                                "type": "string",
+                                "description": "End date in YYYY-MM-DD format",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            }
                         },
-                        "start_date": {
-                            "type": "string",
-                            "description": "Start date in YYYY-MM-DD format",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-                        },
-                        "end_date": {
-                            "type": "string",
-                            "description": "End date in YYYY-MM-DD format",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-                        }
-                    },
-                    "required": ["start_date", "end_date"]
+                        "required": ["start_date", "end_date"]
+                    }
                 }
             },
             {
-                "name": "analyze_cost_increase",
-                "description": "Analyze cost increases by comparing baseline vs spike periods. Use this when the user asks about cost spikes, cost increases, or wants to compare two time periods.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "baseline_start": {
-                            "type": "string",
-                            "description": "Baseline period start date (YYYY-MM-DD)",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                "type": "function",
+                "function": {
+                    "name": "analyze_cost_increase",
+                    "description": "Analyze cost increases by comparing baseline vs spike periods. Use this when the user asks about cost spikes, cost increases, or wants to compare two time periods.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "baseline_start": {
+                                "type": "string",
+                                "description": "Baseline period start date (YYYY-MM-DD)",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            },
+                            "baseline_end": {
+                                "type": "string",
+                                "description": "Baseline period end date (YYYY-MM-DD)",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            },
+                            "spike_start": {
+                                "type": "string",
+                                "description": "Spike period start date (YYYY-MM-DD)",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            },
+                            "spike_end": {
+                                "type": "string",
+                                "description": "Spike period end date (YYYY-MM-DD)",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            },
+                            "workgroup": {
+                                "type": "string",
+                                "description": "Optional workgroup filter"
+                            }
                         },
-                        "baseline_end": {
-                            "type": "string",
-                            "description": "Baseline period end date (YYYY-MM-DD)",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-                        },
-                        "spike_start": {
-                            "type": "string",
-                            "description": "Spike period start date (YYYY-MM-DD)",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-                        },
-                        "spike_end": {
-                            "type": "string",
-                            "description": "Spike period end date (YYYY-MM-DD)",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-                        },
-                        "workgroup": {
-                            "type": "string",
-                            "description": "Optional workgroup filter"
-                        }
-                    },
-                    "required": ["baseline_start", "baseline_end", "spike_start", "spike_end"]
+                        "required": ["baseline_start", "baseline_end", "spike_start", "spike_end"]
+                    }
                 }
             },
             {
-                "name": "compare_expensive_queries",
-                "description": "Compare expensive queries and extract patterns. Use this when the user asks about expensive queries, query patterns, or wants to analyze query performance.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "start_date": {
-                            "type": "string",
-                            "description": "Start date for query analysis (YYYY-MM-DD)",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                "type": "function",
+                "function": {
+                    "name": "compare_expensive_queries",
+                    "description": "Compare expensive queries and extract patterns. Use this when the user asks about expensive queries, query patterns, or wants to analyze query performance.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "start_date": {
+                                "type": "string",
+                                "description": "Start date for query analysis (YYYY-MM-DD)",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            },
+                            "end_date": {
+                                "type": "string",
+                                "description": "End date for query analysis (YYYY-MM-DD)",
+                                "pattern": r"^\d{4}-\d{2}-\d{2}$"
+                            },
+                            "workgroup": {
+                                "type": "string",
+                                "description": "Optional workgroup filter"
+                            },
+                            "query_pattern": {
+                                "type": "string",
+                                "description": "Optional pattern to filter queries (e.g., table name)"
+                            }
                         },
-                        "end_date": {
-                            "type": "string",
-                            "description": "End date for query analysis (YYYY-MM-DD)",
-                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-                        },
-                        "workgroup": {
-                            "type": "string",
-                            "description": "Optional workgroup filter"
-                        },
-                        "query_pattern": {
-                            "type": "string",
-                            "description": "Optional pattern to filter queries (e.g., table name)"
-                        }
-                    },
-                    "required": ["start_date", "end_date"]
+                        "required": ["start_date", "end_date"]
+                    }
                 }
             }
         ]
         
-        self.system_prompt = """You are an AI assistant helping users analyze AWS Athena query costs and performance. 
-You have access to tools that can:
-1. Fetch query data from the database
-2. Analyze cost increases between time periods
-3. Compare expensive queries and find patterns
+        self.system_prompt_template = """You are an Expert Cloud Economist and AWS Athena Analytics Copilot.
+Your goal is to provide deep, actionable insights into query costs and performance.
+Don't just list data—analyze it. Find the "Why".
 
-When interacting with users:
-- Be conversational and helpful
-- Ask clarifying questions if dates or parameters are unclear
-- Use natural language to explain results
-- Suggest follow-up analyses when relevant
-- If dates are mentioned relatively (like "last week"), calculate the actual dates
+You have access to the following SPECIFIC tools:
 
-Always use the appropriate tool when the user asks for data analysis. If the user is just asking a general question or needs clarification, respond conversationally without using tools."""
+1. `fetch_athena_queries`: Get raw query data. Requires `start_date` and `end_date`.
+2. `analyze_cost_increase`: Analyze cost spikes. Requires `baseline_start`, `baseline_end`, `spike_start`, `spike_end`.
+3. `compare_expensive_queries`: Find expensive query patterns. Requires `start_date` and `end_date`.
 
-    def _parse_relative_date(self, text: str) -> Tuple[Optional[str], Optional[str]]:
-        """Parse relative dates like 'last 7 days', 'last month', etc."""
-        text_lower = text.lower()
-        now = datetime.now()
-        
-        if 'last 7 days' in text_lower or 'past week' in text_lower:
-            return (now - timedelta(days=7)).strftime('%Y-%m-%d'), now.strftime('%Y-%m-%d')
-        elif 'last 14 days' in text_lower or 'past 2 weeks' in text_lower:
-            return (now - timedelta(days=14)).strftime('%Y-%m-%d'), now.strftime('%Y-%m-%d')
-        elif 'last 30 days' in text_lower or 'past month' in text_lower or 'last month' in text_lower:
-            return (now - timedelta(days=30)).strftime('%Y-%m-%d'), now.strftime('%Y-%m-%d')
-        
-        return None, None
+GUIDELINES:
+- Today is {current_date}.
+- Use YYYY-MM-DD for dates.
+- If data is empty, suggest valid date ranges or ask to try a wider range.
+- **CRITICAL**: Only mention workgroups, tables, or drivers that appear in the tool output. Do NOT invent workgroup names like 'auditing' or 'payments'.
+
+RESPONSE FORMAT (Use Markdown):
+## 📊 Executive Summary
+(1-2 sentences highlighting the most critical finding, e.g., "Costs spiked 40% due to unpartitioned queries in the 'reporting' workgroup.")
+
+## 🔍 Key Discoveries
+- **Driver 1:** (Detail about specific tables, workgroups, or users causing impact)
+- **Driver 2:** (Secondary factors)
+
+## 💡 Recommendations
+1. **Immediate:** (e.g., "Add 'LIMIT' to ad-hoc queries")
+2. **Long-term:** (e.g., "Partition table 'logs_events' by date")
+
+## 💰 Estimated Impact
+(e.g., "Implementing these could save ~$50/month")
+
+EXAMPLES:
+- User: "Why did costs go up last week?"
+  -> Call `analyze_cost_increase`.
+  -> Response: "Costs increased by $150 (30%) due to 5 huge queries scanning the entire 'logs' table..."
+
+- User: "Show me expensive queries"
+  -> Call `compare_expensive_queries`.
+  -> Response: "The top query scanned 500GB ($2.50) alone. It selects * from a 10TB table..."
+"""
 
     def _call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Call an MCP tool and return the result."""
         try:
+            print(f"Calling tool: {tool_name} with args: {arguments}")
             if tool_name == "fetch_athena_queries":
                 result = fetch_athena_queries(
                     workgroup=arguments.get("workgroup"),
@@ -193,15 +228,14 @@ Always use the appropriate tool when the user asks for data analysis. If the use
             return {"success": False, "error": str(e)}
 
     def _format_tool_result(self, tool_name: str, result: Dict[str, Any]) -> str:
-        """Format tool result into a readable string for Claude."""
+        """Format tool result into a readable string."""
         if not result.get("success"):
             return f"Error: {result.get('error', 'Unknown error')}"
         
-        # Return a summary that Claude can use to generate a natural response
+        # Return a summary that the LLM can use to generate a natural response
         if tool_name == "fetch_athena_queries":
             return f"Successfully fetched {result.get('matched_count', 0)} queries. File saved to {result.get('file_path', 'N/A')}"
         elif tool_name == "analyze_cost_increase":
-            summary = result.get('summary', {})
             period_comp = result.get('period_comparison', {})
             baseline = period_comp.get('baseline', {})
             spike = period_comp.get('spike', {})
@@ -217,8 +251,19 @@ Always use the appropriate tool when the user asks for data analysis. If the use
             top_queries = result.get('top_queries', {})
             if top_queries and isinstance(top_queries, dict):
                 if 'spike' in top_queries and top_queries['spike']:
-                    response += f"\nTop expensive query in spike period: {top_queries['spike'][0].get('gb', 0):.2f} GB"
-            
+                    val = top_queries['spike'][0].get('gb', 0)
+                    response += f"\nTop expensive query in spike period: {val:.2f} GB"
+
+            # Add workgroup breakdown
+            workgroup_comparison = result.get('workgroup_comparison', [])
+            if workgroup_comparison:
+                response += "\n\nWorkgroup Breakdown (Top Drivers):"
+                for wg in workgroup_comparison[:3]: # Top 3 drivers
+                    name = wg.get('workgroup', 'Unknown')
+                    gb_change = wg.get('gb_change', 0)
+                    spike_gb = wg.get('total_gb_spike', 0)
+                    response += f"\n- {name}: +{gb_change:.2f} GB increase (Total Spike: {spike_gb:.2f} GB)"
+
             return response
         elif tool_name == "compare_expensive_queries":
             stats = result.get('statistics', {})
@@ -234,17 +279,23 @@ Always use the appropriate tool when the user asks for data analysis. If the use
         return json.dumps(result, indent=2, default=str)
 
     async def chat(self, user_message: str, conversation_history: List[Dict[str, str]]) -> str:
-        """Process a user message and return a response using Claude API."""
+        """Process a user message and return a response using OpenAI-compatible API."""
         
-        # If Claude API is not available, use intelligent fallback with MCP tools
+        # If client is not available, return simplified fallback
         if not self.client:
-            return self._fallback_response(user_message, conversation_history)
+             # Basic fallback logic if no LLM is connected
+             return "I'm sorry, I can't connect to the local AI model (Ollama). Please ensure it is running on http://localhost:11434."
         
-        # Build messages for Claude
-        messages = []
+        # Build messages for API
+        current_date_str = datetime.now().strftime("%Y-%m-%d")
+        system_prompt = self.system_prompt_template.format(current_date=current_date_str)
+        messages = [{"role": "system", "content": system_prompt}]
         for msg in conversation_history[-10:]:  # Keep last 10 messages for context
+            role = msg["role"]
+            if role not in ["user", "assistant", "system", "tool"]: # Ensure valid roles
+                 role = "user"
             messages.append({
-                "role": msg["role"],
+                "role": role,
                 "content": msg["content"]
             })
         messages.append({
@@ -253,247 +304,86 @@ Always use the appropriate tool when the user asks for data analysis. If the use
         })
         
         try:
-            # Call Claude with tool definitions
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=4096,
-                system=self.system_prompt,
+            print(f"Sending request to LLM: {self.model_name}")
+            # First call to LLM
+            response = self.client.chat.completions.create(
+                model=self.model_name,
                 messages=messages,
-                tools=self.tools
+                tools=self.tools,
+                tool_choice="auto"
             )
             
-            # Process the response
-            final_response = ""
-            tool_results = []
+            response_message = response.choices[0].message
+            tool_calls = response_message.tool_calls
             
-            for content_block in response.content:
-                if content_block.type == "text":
-                    final_response += content_block.text
-                elif content_block.type == "tool_use":
-                    # Claude wants to use a tool
-                    tool_name = content_block.name
-                    tool_input = content_block.input
+            # Fallback for local LLMs: Check if content contains a JSON tool call
+            if not tool_calls and response_message.content:
+                import re
+                # Llama 3 variable formats:
+                # 1. {"name": "tool", "parameters": {...}}
+                # 2. <tool_code>...
+                
+                # Check for standard JSON tool call pattern
+                json_match = re.search(r'\{[\s\S]*"name"[\s\S]*"parameters"[\s\S]*\}', response_message.content)
+                if json_match:
+                    try:
+                        tool_data = json.loads(json_match.group(0))
+                        function_name = tool_data.get("name")
+                        function_args = tool_data.get("parameters", {})
+                        
+                        if function_name:
+                            print(f"Detected embedded tool call: {function_name}")
+                            # Create a mock tool call object to reuse logic
+                            messages.append(response_message)
+                            
+                            tool_result = self._call_tool(function_name, function_args)
+                            formatted_result = self._format_tool_result(function_name, tool_result)
+                            
+                            messages.append({
+                                "role": "tool", # Note: Local models might need 'user' role for tool results if they don't strictly follow OpenAI format, but 'tool' is standard
+                                "name": function_name,
+                                "content": formatted_result,
+                                "tool_call_id": "call_fallback_" + datetime.now().strftime("%H%M%S") # Fake ID
+                            })
+                            
+                            # Get final response
+                            second_response = self.client.chat.completions.create(
+                                model=self.model_name,
+                                messages=messages
+                            )
+                            return second_response.choices[0].message.content
+                    except Exception as e:
+                        print(f"Failed to parse fallback tool call: {e}")
+            
+            
+            if tool_calls:
+                # LLM wants to use tools
+                messages.append(response_message) # Add assistant's tool call request to history
+                
+                for tool_call in tool_calls:
+                    function_name = tool_call.function.name
+                    function_args = json.loads(tool_call.function.arguments)
                     
-                    # Call the tool
-                    tool_result = self._call_tool(tool_name, tool_input)
-                    formatted_result = self._format_tool_result(tool_name, tool_result)
+                    tool_result = self._call_tool(function_name, function_args)
+                    formatted_result = self._format_tool_result(function_name, tool_result)
                     
-                    tool_results.append({
-                        "tool_use_id": content_block.id,
-                        "content": formatted_result
+                    messages.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": function_name,
+                        "content": formatted_result,
                     })
-            
-            # If tools were called, send results back to Claude for final response
-            if tool_results:
-                messages.append({
-                    "role": "assistant",
-                    "content": response.content
-                })
                 
-                # Add tool results
-                messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tr["tool_use_id"],
-                            "content": tr["content"]
-                        }
-                        for tr in tool_results
-                    ]
-                })
-                
-                # Get final response from Claude
-                final_response_obj = self.client.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=4096,
-                    system=self.system_prompt,
+                # Get final response from LLM
+                second_response = self.client.chat.completions.create(
+                    model=self.model_name,
                     messages=messages
                 )
-                
-                # Extract text from final response
-                final_response = ""
-                for content_block in final_response_obj.content:
-                    if content_block.type == "text":
-                        final_response += content_block.text
+                return second_response.choices[0].message.content
             
-            return final_response if final_response else "I've processed your request. How can I help you further?"
+            return response_message.content if response_message.content else "I've processed your request."
             
         except Exception as e:
             traceback.print_exc()
-            return f"I encountered an error: {str(e)}. Let me try a simpler approach."
-
-    def _fallback_response(self, user_message: str, conversation_history: List[Dict[str, str]] = None) -> str:
-        """Fallback response when Claude API is not available - still uses MCP tools with conversation awareness."""
-        if conversation_history is None:
-            conversation_history = []
-        
-        message_lower = user_message.lower().strip()
-        
-        # Check conversation history for context
-        recent_context = ' '.join([msg.get('content', '') for msg in conversation_history[-3:]])
-        context_lower = recent_context.lower()
-        
-        # Check for simple greetings first - show shorter message
-        is_greeting = (
-            message_lower in ['hello', 'hi', 'hey', 'help'] or 
-            message_lower.startswith('hello') or 
-            message_lower.startswith('hi ') or
-            message_lower.startswith('hey ') or
-            ('can you help' in message_lower and len(message_lower) < 30)
-        )
-        
-        if is_greeting and len(conversation_history) == 0:
-            return """Hi! I'm here to help you analyze your AWS Athena queries and costs. 
-
-I can help you understand:
-- Query patterns and usage
-- Cost trends and increases
-- Expensive queries and optimization opportunities
-
-What would you like to explore today? Feel free to ask me questions, and I'll help guide you through the analysis."""
-        
-        # Check for user confirmation (yes, analyze it, etc.) in response to previous question
-        is_confirmation = any(phrase in message_lower for phrase in ['yes', 'yeah', 'yep', 'sure', 'ok', 'okay', 'go ahead', 'do it', 'analyze it', 'please'])
-        if is_confirmation and len(conversation_history) > 0:
-            # Check if previous assistant message was asking about cost analysis
-            last_assistant_msg = ''
-            for msg in reversed(conversation_history):
-                if msg.get('role') == 'assistant':
-                    last_assistant_msg = msg.get('content', '').lower()
-                    break
-            
-            # If assistant asked a question and user confirmed, check if it's about cost analysis
-            if last_assistant_msg and ('would you like' in last_assistant_msg or 'cost' in last_assistant_msg):
-                # Check if context mentions "last week" for cost analysis
-                if 'last week' in context_lower:
-                    try:
-                        now = datetime.now()
-                        spike_end = now.strftime('%Y-%m-%d')
-                        spike_start = (now - timedelta(days=7)).strftime('%Y-%m-%d')
-                        baseline_end = spike_start
-                        baseline_start = (now - timedelta(days=14)).strftime('%Y-%m-%d')
-                        
-                        from backend.main import format_tool_response
-                        result = self._call_tool('analyze_cost_increase', {
-                            'baseline_start': baseline_start,
-                            'baseline_end': baseline_end,
-                            'spike_start': spike_start,
-                            'spike_end': spike_end
-                        })
-                        response = format_tool_response('analyze_cost_increase', result)
-                        return f"Perfect! I've analyzed the cost increase comparing last week ({spike_start} to {spike_end}) to the week before ({baseline_start} to {baseline_end}).\n\n{response}\n\nWould you like me to investigate the specific queries causing this increase?"
-                    except Exception as e:
-                        traceback.print_exc()
-                        return f"I encountered an error while analyzing: {str(e)}. Could you try again?"
-        
-        # Check for explicit action requests (fetch, analyze, compare, show me, get me)
-        explicit_action = any(phrase in message_lower for phrase in [
-            'fetch', 'get me', 'show me', 'export', 'download', 'create a report',
-            'generate', 'run', 'execute', 'analyze', 'compare'
-        ])
-        
-        # Check for cost/spike mentions - be conversational, don't immediately act
-        cost_mentioned = any(word in message_lower for word in ['cost', 'spike', 'increase', 'went up', 'higher', 'expensive', 'spending'])
-        if cost_mentioned and not explicit_action and not is_confirmation:
-            # User is asking about costs - be conversational, ask questions
-            if 'last week' in message_lower or 'last week' in context_lower:
-                return "I can help investigate that cost increase from last week! To analyze it properly, I'll compare last week to the week before to see what changed.\n\nWould you like me to run that analysis? Just say \"yes\" or \"analyze it\" and I'll get started."
-            elif 'why' in message_lower or 'what' in message_lower or 'how' in message_lower:
-                return "I'd be happy to help you understand what's happening with your costs! To investigate, I'll need to compare two time periods:\n\n- What period should I use as the baseline (normal costs)?\n- What period had the cost increase?\n\nFor example, if costs went up last week, I can compare last week to the week before. Would you like me to analyze that?\n\nOr if you'd prefer, you can tell me specific dates like: \"Compare 2025-12-01 to 2025-12-07 (baseline) vs 2025-12-08 to 2025-12-14 (spike)\""
-            else:
-                return "I can help you investigate the cost increase! To do a proper analysis, I need to understand:\n\n- When did you notice the costs went up? (specific dates or relative like \"last week\")\n- What period should I compare it to? (the normal baseline period)\n\nOnce you provide those details, I can analyze what changed and identify the queries causing the increase. What time periods would you like me to compare?"
-        
-        # Check for explicit help requests
-        explicit_help = any(phrase in message_lower for phrase in [
-            'what can you do', 'capabilities', 'help me with', 'show me how', 
-            'how do i', 'how can i', 'what tools', 'what are your', 'list tools'
-        ])
-        
-        if explicit_help:
-            return """🤖 **I can help you analyze AWS Athena queries using these tools:**
-
-1. **Fetch Queries** - Export query data to CSV
-   Example: "Fetch queries from last 7 days"
-
-2. **Analyze Cost Increase** - Compare baseline vs spike periods
-   Example: "Analyze cost increase from baseline 2025-12-01 to 2025-12-07 vs spike 2025-12-08 to 2025-12-14"
-
-3. **Compare Expensive Queries** - Find and compare expensive query patterns
-   Example: "Compare expensive queries from last 30 days"
-
-💡 **Tips:**
-- Specify dates like "last 7 days", "2025-12-01 to 2025-12-31", or "last month"
-- Filter by workgroup: "workgroup: ETLs"
-- Ask about cost spikes, query patterns, or data usage
-
-**Note:** To enable full AI agent capabilities with natural language understanding, set the ANTHROPIC_API_KEY environment variable."""
-        
-        # Only call tools if user explicitly requests an action
-        if explicit_action:
-            try:
-                # Import here to avoid circular imports
-                import sys
-                import os
-                sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-                from backend.main import determine_tool_and_params, format_tool_response
-                
-                tool_info = determine_tool_and_params(user_message)
-                tool_name = tool_info['tool']
-                params = {k: v for k, v in tool_info['params'].items() if v is not None}
-                
-                # Only proceed if we have enough info, otherwise ask for clarification
-                if tool_name == 'fetch_athena_queries':
-                    if params.get('start_date') and params.get('end_date'):
-                        result = self._call_tool(tool_name, params)
-                        response = format_tool_response(tool_name, result)
-                        return response + "\n\nIs there anything specific you'd like to analyze about these queries?"
-                    else:
-                        return "I'd be happy to fetch that data for you! Could you specify the date range? For example:\n- \"Fetch queries from last 7 days\"\n- \"Get queries from 2025-12-01 to 2025-12-31\""
-                        
-                elif tool_name == 'analyze_cost_increase':
-                    # Check if user confirmed or provided dates
-                    if 'yes' in message_lower or 'analyze' in message_lower or 'do it' in message_lower or 'please' in message_lower:
-                        # User confirmed - check if we have dates from context
-                        if 'last week' in message_lower or 'last week' in context_lower:
-                            now = datetime.now()
-                            spike_end = now.strftime('%Y-%m-%d')
-                            spike_start = (now - timedelta(days=7)).strftime('%Y-%m-%d')
-                            baseline_end = spike_start
-                            baseline_start = (now - timedelta(days=14)).strftime('%Y-%m-%d')
-                            params.update({
-                                'baseline_start': baseline_start,
-                                'baseline_end': baseline_end,
-                                'spike_start': spike_start,
-                                'spike_end': spike_end
-                            })
-                    
-                    if all(params.get(k) for k in ['baseline_start', 'baseline_end', 'spike_start', 'spike_end']):
-                        result = self._call_tool(tool_name, params)
-                        response = format_tool_response(tool_name, result)
-                        return response + "\n\nWould you like me to investigate the specific queries causing this increase?"
-                    else:
-                        return "I can help analyze that cost increase! To do a proper comparison, I need:\n- Baseline period dates (normal period)\n- Spike period dates (when costs increased)\n\nFor example: \"Analyze cost increase: baseline from 2025-12-01 to 2025-12-07, spike from 2025-12-08 to 2025-12-14\""
-                        
-                elif tool_name == 'compare_expensive_queries':
-                    if params.get('start_date') and params.get('end_date'):
-                        result = self._call_tool(tool_name, params)
-                        response = format_tool_response(tool_name, result)
-                        return response + "\n\nWould you like me to analyze the patterns in these expensive queries?"
-                    else:
-                        return "I'd be happy to compare expensive queries! Could you specify the date range? For example:\n- \"Compare expensive queries from last 30 days\"\n- \"Show expensive queries from 2025-12-01 to 2025-12-31\""
-            except Exception as e:
-                traceback.print_exc()
-                pass  # Fall through to conversational response
-        
-        # Conversational responses for queries about queries
-        query_mentioned = any(word in message_lower for word in ['query', 'queries', 'execution', 'performance'])
-        if query_mentioned and not explicit_action:
-            if 'expensive' in message_lower or 'most' in message_lower or 'top' in message_lower:
-                return "I can help you find the expensive queries! To do that, I'll need to know:\n\n- What time period should I look at? (e.g., \"last 30 days\", \"December 2025\")\n- Are you interested in a specific workgroup, or all workgroups?\n\nOnce you tell me the date range, I can analyze and show you which queries are using the most data and costing the most. What period would you like me to examine?"
-            else:
-                return "I can help you understand your query patterns! What specifically would you like to know?\n\n- Query volume trends?\n- Data scanning patterns?\n- Performance issues?\n- Cost optimization opportunities?\n\nTell me what you're curious about, and I'll help guide you through the analysis!"
-        
-        # Default conversational response
-        return "I'm here to help you understand your AWS Athena queries and costs! What would you like to explore?\n\nYou can ask me about:\n- Cost trends and increases\n- Query patterns and usage\n- Expensive queries\n- Optimization opportunities\n\nJust tell me what you're curious about, and I'll ask clarifying questions to help you get the insights you need!"
+            return f"I encountered an error connecting to the AI model: {str(e)}. Please check if Ollama is running and the model '{self.model_name}' is downloaded."
 

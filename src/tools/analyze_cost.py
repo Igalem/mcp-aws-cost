@@ -277,6 +277,31 @@ def analyze_cost_increase(
                             'baseline_count': baseline_count,
                             'spike_count': spike_count
                         })
+
+        # Compare workgroups
+        baseline_workgroups = df_baseline.groupby('workgroup').agg({
+            'data_scanned_bytes': ['sum', 'count']
+        }).reset_index()
+        baseline_workgroups.columns = ['workgroup', 'total_bytes', 'count']
+        baseline_workgroups['total_gb'] = baseline_workgroups['total_bytes'] / (1024**3)
+        
+        spike_workgroups = df_spike.groupby('workgroup').agg({
+            'data_scanned_bytes': ['sum', 'count']
+        }).reset_index()
+        spike_workgroups.columns = ['workgroup', 'total_bytes', 'count']
+        spike_workgroups['total_gb'] = spike_workgroups['total_bytes'] / (1024**3)
+        
+        workgroup_comparison = pd.merge(
+            baseline_workgroups[['workgroup', 'total_gb', 'count']],
+            spike_workgroups[['workgroup', 'total_gb', 'count']],
+            on='workgroup',
+            how='outer',
+            suffixes=('_baseline', '_spike')
+        ).fillna(0)
+        
+        workgroup_comparison['gb_change'] = workgroup_comparison['total_gb_spike'] - workgroup_comparison['total_gb_baseline']
+        workgroup_comparison['count_change'] = workgroup_comparison['count_spike'] - workgroup_comparison['count_baseline']
+        workgroup_comparison = workgroup_comparison.sort_values('gb_change', ascending=False)
         
         return {
             "success": True,
@@ -321,6 +346,7 @@ def analyze_cost_increase(
             "new_patterns": new_patterns_data,
             "insert_analysis": insert_analysis,
             "query_changes": query_changes,
+            "workgroup_comparison": workgroup_comparison.to_dict('records'),
             "error": None
         }
         

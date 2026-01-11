@@ -17,6 +17,7 @@ backups/
 # Logs
 frontend.log
 backend.log
+ollama.log
 # Service PIDs
 .start_all.pids
 

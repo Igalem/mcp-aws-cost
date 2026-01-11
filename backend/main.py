@@ -108,27 +108,21 @@ async def get_dashboard_stats(start_date: Optional[str] = None, end_date: Option
         return {"queries": []}
 
 
+
+# Initialize agent
+from backend.agent import AthenaAnalyticsAgent
+agent = AthenaAnalyticsAgent()
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Handle chat requests with MCP integration."""
     try:
-        # For now, return a simple response
-        # TODO: Integrate with MCP server or Claude API
-        message = request.message.lower()
-        
-        # Simple keyword-based responses (can be replaced with MCP integration)
-        if 'expensive' in message or 'cost' in message:
-            response = "To find expensive queries, I can help you analyze query patterns. Would you like me to check queries with high data scan volumes?"
-        elif 'workgroup' in message and 'data' in message:
-            response = "I can analyze workgroup data usage. Let me query the database for workgroup statistics..."
-        elif 'trend' in message or 'pattern' in message:
-            response = "I can help you identify query trends and patterns. Would you like to see daily query volumes or data scan trends?"
-        else:
-            response = "I'm here to help you analyze your AWS Athena queries. You can ask me about:\n- Expensive queries\n- Workgroup data usage\n- Query trends and patterns\n- Cost optimization suggestions"
-        
+        response = await agent.chat(request.message, request.chat_history)
         return ChatResponse(response=response)
         
     except Exception as e:
+        print(f"Chat error: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 

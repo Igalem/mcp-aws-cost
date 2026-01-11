@@ -15,6 +15,9 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# Define Model Name (default to llama3.1)
+MODEL_NAME=${LLM_MODEL_NAME:-llama3.1}
+
 # PID file to track processes
 PID_FILE="$SCRIPT_DIR/.start_all.pids"
 
@@ -36,6 +39,7 @@ cleanup() {
     pkill -f "backend.main" 2>/dev/null || true
     pkill -f "npm run dev" 2>/dev/null || true
     pkill -f "src.server" 2>/dev/null || true
+    pkill -f "ollama serve" 2>/dev/null || true
     
     echo -e "${GREEN}All services stopped.${NC}"
     exit 0
@@ -93,11 +97,9 @@ fi
 echo -e "${GREEN}Activating virtual environment...${NC}"
 source venv/bin/activate
 
-# Check if backend dependencies are installed
-if ! python -c "import fastapi" 2>/dev/null; then
-    echo -e "${YELLOW}Installing backend dependencies...${NC}"
-    pip install -r requirements.txt > /dev/null 2>&1
-fi
+# Check backend dependencies
+echo -e "${YELLOW}Checking dependencies...${NC}"
+pip install -r requirements.txt > /dev/null 2>&1
 
 # Check ports
 if check_port 8000; then
@@ -110,7 +112,8 @@ fi
 
 # Start Backend API
 echo -e "${GREEN}Starting Backend API server...${NC}"
-python -m backend.main > backend.log 2>&1 &
+# Explicitly pass model name to backend
+LLM_MODEL_NAME=$MODEL_NAME python -m backend.main > backend.log 2>&1 &
 BACKEND_PID=$!
 echo $BACKEND_PID >> "$PID_FILE"
 echo "  Backend PID: $BACKEND_PID"
@@ -134,6 +137,33 @@ if [ ! -d "frontend/node_modules" ]; then
     npm install > /dev/null 2>&1
     cd ..
 fi
+
+
+# Check if Ollama is running
+if check_port 11434; then
+    echo -e "${GREEN}Ollama is already running.${NC}"
+else
+    echo -e "${YELLOW}Starting Ollama server...${NC}"
+    if command -v ollama &> /dev/null; then
+        ollama serve > ollama.log 2>&1 &
+        OLLAMA_PID=$!
+        echo $OLLAMA_PID >> "$PID_FILE"
+        echo "  Ollama PID: $OLLAMA_PID"
+        echo "  Logs: ollama.log"
+        
+        # Pull llama3.1 if not present (background)
+        # Pull model (background)
+        # Pull model (background)
+        # Check if we need to pull the model
+        if ! ollama list | grep -q "$MODEL_NAME"; then
+             echo -e "${YELLOW}Pulling $MODEL_NAME model...${NC}"
+             ollama pull $MODEL_NAME > /dev/null 2>&1 &
+        fi
+    else
+        echo -e "${RED}Error: 'ollama' command not found. Please install Ollama first.${NC}"
+    fi
+fi
+echo ""
 
 # Start Frontend
 echo -e "${GREEN}Starting Frontend development server...${NC}"
@@ -174,10 +204,12 @@ echo -e "Services running:"
 echo -e "  ${GREEN}✓${NC} Backend API:    http://localhost:8000"
 echo -e "  ${GREEN}✓${NC} Frontend:       http://localhost:5173"
 echo -e "  ${GREEN}✓${NC} API Docs:       http://localhost:8000/docs"
+echo -e "  ${GREEN}✓${NC} Ollama Local:   http://localhost:11434"
 echo ""
 echo -e "Log files:"
 echo -e "  - Backend:  backend.log"
 echo -e "  - Frontend: frontend.log"
+echo -e "  - Ollama:   ollama.log"
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop all services${NC}"
 echo ""
