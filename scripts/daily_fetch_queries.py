@@ -42,10 +42,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.tools.fetch_queries import (
     list_workgroups,
     fetch_query_executions_from_aws,
-    insert_queries_to_database,
-    delete_queries_for_date_range
+    insert_queries_to_database
 )
-from src.utils.database import init_database
+from src.utils.database import init_database, init_staging_table, merge_staging_to_main, clear_staging_table
 import boto3
 
 
@@ -144,10 +143,11 @@ def main():
         else:
             logger.info(f"Starting fetch for date range: {start_date_str} to {end_date_str}")
         
-        # Initialize database
+        # Initialize database and staging table
         try:
             init_database()
-            logger.info("Database initialized")
+            init_staging_table()
+            logger.info("Database and staging table initialized")
         except Exception as e:
             logger.warning(f"Database initialization warning: {e}")
         
@@ -168,13 +168,13 @@ def main():
             workgroups_to_fetch = list_workgroups(athena_client)
             logger.info(f"Found {len(workgroups_to_fetch)} workgroups: {', '.join(workgroups_to_fetch[:10])}{'...' if len(workgroups_to_fetch) > 10 else ''}")
         
-        # Delete existing data for this date range to allow rewriting
-        logger.info(f"Deleting existing data for date range: {start_date_str} to {end_date_str}")
+        # Clear staging table before starting
+        logger.info("Clearing staging table before fetch...")
         try:
-            deleted_count = delete_queries_for_date_range(start_date_str, end_date_str, workgroup=args.workgroup)
-            logger.info(f"Deleted {deleted_count} existing queries for date range {start_date_str} to {end_date_str}")
+            cleared_count = clear_staging_table()
+            logger.info(f"Cleared {cleared_count} rows from staging table")
         except Exception as e:
-            logger.warning(f"Error deleting existing data (may not exist): {e}")
+            logger.warning(f"Error clearing staging table (may be empty): {e}")
         
         # Progress callback for logging workgroup processing
         def log_progress(workgroup, query_ids_count, matched_count):
@@ -206,13 +206,14 @@ def main():
             logger.info(f"Received batch {batch_number} from generator ({len(batch)} queries)")
             
             if batch:
-                logger.info(f"Inserting batch {batch_number} ({len(batch)} queries)...")
+                logger.info(f"Inserting batch {batch_number} ({len(batch)} queries) into staging table...")
                 try:
-                    inserted_count = insert_queries_to_database(batch, commit=True)
+                    # Insert into staging table instead of main table
+                    inserted_count = insert_queries_to_database(batch, commit=True, use_staging=True)
                     total_inserted += inserted_count
-                    logger.info(f"Batch {batch_number} inserted: {inserted_count} queries (Total: {total_inserted})")
+                    logger.info(f"Batch {batch_number} inserted into staging: {inserted_count} queries (Total: {total_inserted})")
                 except Exception as e:
-                    logger.error(f"Error inserting batch {batch_number}: {e}")
+                    logger.error(f"Error inserting batch {batch_number} into staging: {e}")
                     raise
             else:
                 logger.info(f"Received empty batch {batch_number}")
@@ -222,8 +223,34 @@ def main():
                 logger.info("No queries found for the specified date")
             else:
                 logger.info(f"No queries found for the specified date range ({start_date_str} to {end_date_str})")
+        else:
+            # Merge staging table to main table
+            logger.info(f"Merging {total_inserted} queries from staging table to main table...")
+            try:
+                merge_result = merge_staging_to_main()
+                if merge_result.get("success"):
+                    logger.info(
+                        f"Merge completed successfully: "
+                        f"{merge_result.get('inserted', 0)} inserted, "
+                        f"{merge_result.get('updated', 0)} updated, "
+                        f"{merge_result.get('total', 0)} total affected"
+                    )
+                else:
+                    logger.error(f"Merge failed: {merge_result.get('error', 'Unknown error')}")
+                    raise Exception(f"Merge failed: {merge_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                logger.error(f"Error merging staging to main table: {e}")
+                raise
+            
+            # Clear staging table after successful merge
+            logger.info("Clearing staging table after successful merge...")
+            try:
+                cleared_count = clear_staging_table()
+                logger.info(f"Cleared {cleared_count} rows from staging table")
+            except Exception as e:
+                logger.warning(f"Error clearing staging table: {e}")
         
-        logger.info(f"Daily fetch completed successfully. Fetched {total_fetched} queries, inserted {total_inserted} queries.")
+        logger.info(f"Daily fetch completed successfully. Fetched {total_fetched} queries, inserted {total_inserted} queries into staging, merged to main table.")
         sys.exit(0)
         
     except Exception as e:

@@ -256,6 +256,165 @@ def init_database():
     return True
 
 
+def init_staging_table():
+    """Initialize the staging table schema if it doesn't exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Create staging table with same structure as queries table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS queries_staging (
+            query_execution_id VARCHAR(255) PRIMARY KEY,
+            start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+            end_time TIMESTAMP WITH TIME ZONE,
+            runtime NUMERIC(12, 4),
+            state VARCHAR(50) NOT NULL,
+            status_reason TEXT,
+            data_scanned_bytes BIGINT NOT NULL,
+            cost NUMERIC(15, 6),
+            workgroup VARCHAR(100),
+            database VARCHAR(255),
+            engine_version VARCHAR(50),
+            query_text TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Create index on workgroup for faster merges
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_staging_workgroup 
+        ON queries_staging (workgroup)
+    """)
+    
+    # Create index on start_time for faster merges
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_staging_start_time 
+        ON queries_staging (start_time)
+    """)
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    return True
+
+
+def merge_staging_to_main():
+    """
+    Merge data from queries_staging to queries table.
+    Uses INSERT ... ON CONFLICT to update existing records by query_execution_id and workgroup.
+    
+    Returns:
+        Dictionary with merge statistics (inserted, updated, total)
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Set lock timeout
+        cursor.execute("SET lock_timeout = '30s'")
+        
+        # Count records in staging before merge
+        cursor.execute("SELECT COUNT(*) FROM queries_staging")
+        staging_count = cursor.fetchone()[0]
+        
+        if staging_count == 0:
+            return {
+                "inserted": 0,
+                "updated": 0,
+                "total": 0,
+                "success": True
+            }
+        
+        # Merge staging to main table
+        # ON CONFLICT updates existing records by query_execution_id
+        cursor.execute("""
+            INSERT INTO queries (
+                query_execution_id, start_time, end_time, runtime, state, 
+                data_scanned_bytes, engine_version, query_text, status_reason, workgroup, database, cost
+            )
+            SELECT 
+                query_execution_id, start_time, end_time, runtime, state, 
+                data_scanned_bytes, engine_version, query_text, status_reason, workgroup, database, cost
+            FROM queries_staging
+            ON CONFLICT (query_execution_id) DO UPDATE SET
+                start_time = EXCLUDED.start_time,
+                end_time = EXCLUDED.end_time,
+                runtime = EXCLUDED.runtime,
+                state = EXCLUDED.state,
+                data_scanned_bytes = EXCLUDED.data_scanned_bytes,
+                engine_version = EXCLUDED.engine_version,
+                query_text = EXCLUDED.query_text,
+                status_reason = EXCLUDED.status_reason,
+                workgroup = EXCLUDED.workgroup,
+                database = EXCLUDED.database,
+                cost = EXCLUDED.cost
+        """)
+        
+        # Get the number of affected rows (inserted + updated)
+        total_affected = cursor.rowcount
+        
+        # Count how many were inserts vs updates
+        # We can't directly get this, but we can estimate:
+        # Check how many query_execution_ids from staging exist in main
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM queries_staging s
+            WHERE EXISTS (
+                SELECT 1 FROM queries q 
+                WHERE q.query_execution_id = s.query_execution_id
+            )
+        """)
+        existing_count = cursor.fetchone()[0]
+        updated_count = existing_count
+        inserted_count = total_affected - updated_count
+        
+        conn.commit()
+        
+        return {
+            "inserted": inserted_count,
+            "updated": updated_count,
+            "total": total_affected,
+            "success": True
+        }
+    
+    except Exception as e:
+        conn.rollback()
+        return {
+            "inserted": 0,
+            "updated": 0,
+            "total": 0,
+            "success": False,
+            "error": str(e)
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def clear_staging_table():
+    """
+    Clear all data from the staging table.
+    
+    Returns:
+        Number of rows deleted
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("DELETE FROM queries_staging")
+        deleted_count = cursor.rowcount
+        conn.commit()
+        return deleted_count
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def import_csv_to_database(csv_file: str, table_name: str = "queries", chunk_size: int = 10000) -> Dict[str, Any]:
     """
     Import CSV file into PostgreSQL database.

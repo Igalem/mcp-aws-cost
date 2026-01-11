@@ -463,7 +463,7 @@ def _strip_null_bytes(value: Any) -> Any:
     return value
 
 
-def insert_queries_to_database(queries: List[Dict[str, Any]], commit: bool = True) -> int:
+def insert_queries_to_database(queries: List[Dict[str, Any]], commit: bool = True, use_staging: bool = False) -> int:
     """
     Insert query executions into PostgreSQL database.
     
@@ -471,6 +471,7 @@ def insert_queries_to_database(queries: List[Dict[str, Any]], commit: bool = Tru
         queries: List of query execution dictionaries
         commit: Whether to commit the transaction (default: True)
                Set to False if you want to batch multiple inserts before committing
+        use_staging: If True, insert into queries_staging table instead of queries table
         
     Returns:
         Number of queries inserted
@@ -518,24 +519,49 @@ def insert_queries_to_database(queries: List[Dict[str, Any]], commit: bool = Tru
                 cost
             ))
         
-        cursor.executemany("""
-            INSERT INTO queries (
-                query_execution_id, start_time, end_time, runtime, state, 
-                data_scanned_bytes, engine_version, query_text, status_reason, workgroup, database, cost
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (query_execution_id) DO UPDATE SET
-                start_time = EXCLUDED.start_time,
-                end_time = EXCLUDED.end_time,
-                runtime = EXCLUDED.runtime,
-                state = EXCLUDED.state,
-                data_scanned_bytes = EXCLUDED.data_scanned_bytes,
-                engine_version = EXCLUDED.engine_version,
-                query_text = EXCLUDED.query_text,
-                status_reason = EXCLUDED.status_reason,
-                workgroup = EXCLUDED.workgroup,
-                database = EXCLUDED.database,
-                cost = EXCLUDED.cost
-        """, values)
+        # Choose table based on use_staging flag
+        table_name = "queries_staging" if use_staging else "queries"
+        
+        if use_staging:
+            # For staging, use simple INSERT (no ON CONFLICT needed, we'll merge later)
+            cursor.executemany(f"""
+                INSERT INTO {table_name} (
+                    query_execution_id, start_time, end_time, runtime, state, 
+                    data_scanned_bytes, engine_version, query_text, status_reason, workgroup, database, cost
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (query_execution_id) DO UPDATE SET
+                    start_time = EXCLUDED.start_time,
+                    end_time = EXCLUDED.end_time,
+                    runtime = EXCLUDED.runtime,
+                    state = EXCLUDED.state,
+                    data_scanned_bytes = EXCLUDED.data_scanned_bytes,
+                    engine_version = EXCLUDED.engine_version,
+                    query_text = EXCLUDED.query_text,
+                    status_reason = EXCLUDED.status_reason,
+                    workgroup = EXCLUDED.workgroup,
+                    database = EXCLUDED.database,
+                    cost = EXCLUDED.cost
+            """, values)
+        else:
+            # For main table, use ON CONFLICT to update existing records
+            cursor.executemany(f"""
+                INSERT INTO {table_name} (
+                    query_execution_id, start_time, end_time, runtime, state, 
+                    data_scanned_bytes, engine_version, query_text, status_reason, workgroup, database, cost
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (query_execution_id) DO UPDATE SET
+                    start_time = EXCLUDED.start_time,
+                    end_time = EXCLUDED.end_time,
+                    runtime = EXCLUDED.runtime,
+                    state = EXCLUDED.state,
+                    data_scanned_bytes = EXCLUDED.data_scanned_bytes,
+                    engine_version = EXCLUDED.engine_version,
+                    query_text = EXCLUDED.query_text,
+                    status_reason = EXCLUDED.status_reason,
+                    workgroup = EXCLUDED.workgroup,
+                    database = EXCLUDED.database,
+                    cost = EXCLUDED.cost
+            """, values)
         
         inserted_count = cursor.rowcount
         if commit:
