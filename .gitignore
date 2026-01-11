@@ -13,6 +13,12 @@ ENV/
 *.egg-info/
 dist/
 build/
+# Logs
+frontend.log
+backend.log
+# Service PIDs
+.start_all.pids
+
 
 
 
