@@ -156,8 +156,11 @@ else
         # Pull model (background)
         # Check if we need to pull the model
         if ! ollama list | grep -q "$MODEL_NAME"; then
-             echo -e "${YELLOW}Pulling $MODEL_NAME model...${NC}"
-             ollama pull $MODEL_NAME > /dev/null 2>&1 &
+             echo -e "${YELLOW}Downloading $MODEL_NAME model... THIS MAY TAKE A WHILE (40GB for 70B!)${NC}"
+             echo -e "${YELLOW}Please do not close this window.${NC}"
+             # Blocking call - do not run in background
+             ollama pull $MODEL_NAME
+             echo -e "${GREEN}Model download complete!${NC}"
         fi
     else
         echo -e "${RED}Error: 'ollama' command not found. Please install Ollama first.${NC}"
