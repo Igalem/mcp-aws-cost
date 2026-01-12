@@ -28,6 +28,10 @@ An MCP (Model Context Protocol) server for analyzing AWS Athena query costs. Thi
 └─────────────────────────────────┘
 ```
 
+## Dashboard Preview
+
+![Dashboard Preview](docs/images/dashboard-preview.jpg)
+
 ## Features
 
 - **Daily Data Collection**: Automated daily process to fetch query execution data from AWS Athena API for all workgroups
