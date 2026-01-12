@@ -89,7 +89,7 @@ def list_workgroups(athena_client) -> List[str]:
     except Exception as e:
         # If list_work_groups fails, try common default workgroups
         # Try common workgroup names
-        for default_wg in ["primary", "ETLs"]:
+        for default_wg in ["primary", "ETL"]:
             try:
                 # Test if workgroup exists by trying to list queries
                 list(athena_client.list_query_executions(WorkGroup=default_wg, MaxResults=1).get("QueryExecutionIds", []))

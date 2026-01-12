@@ -21,7 +21,7 @@ Examples:
     python scripts/daily_fetch_queries.py --start-date 2025-12-01
 
     # Fetch specific date for specific workgroup
-    python scripts/daily_fetch_queries.py --date 2025-12-29 --workgroup ETLs
+    python scripts/daily_fetch_queries.py --date 2025-12-29 --workgroup ETL
 
     # Fetch with custom batch size (inserts every 500 queries)
     python scripts/daily_fetch_queries.py --date 2025-12-29 --batch-size 500

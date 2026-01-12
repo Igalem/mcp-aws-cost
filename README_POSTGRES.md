@@ -51,7 +51,7 @@ The MCP tool interface remains the same - no changes needed in how you call it:
 ```python
 # MCP tool call (unchanged)
 fetch_athena_queries(
-    workgroup="ETLs",
+    workgroup="ETL",
     start_date="2025-12-15",
     end_date="2025-12-15"
 )

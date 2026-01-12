@@ -58,7 +58,7 @@ python scripts/init_database.py --csv /path/to/your/file.csv
 This will:
 - Create the `queries` table with proper schema
 - Create indexes for fast date filtering and sorting
-- Import data from the CSV file (default: `reports/athena_etls_2025-12-10_to_2025-12-16.csv`)
+- Import data from the CSV file (default: `reports/athena_ETL_2025-12-10_to_2025-12-16.csv`)
 
 ## Usage
 
@@ -112,7 +112,7 @@ python scripts/daily_fetch_queries.py
 python scripts/daily_fetch_queries.py --date 2025-12-29
 
 # Fetch for specific workgroup
-python scripts/daily_fetch_queries.py --date 2025-12-29 --workgroup ETLs
+python scripts/daily_fetch_queries.py --date 2025-12-29 --workgroup ETL
 ```
 
 2. **Set up cron job:**

@@ -117,7 +117,7 @@ After saving the configuration file, restart Cursor to load the MCP server.
 
 Once Cursor restarts, you should be able to use the MCP tools. You can test by asking Cursor to:
 
-- "Use the fetch_athena_queries tool to get queries from the ETLs workgroup between 2025-12-10 and 2025-12-16"
+- "Use the fetch_athena_queries tool to get queries from the ETL workgroup between 2025-12-10 and 2025-12-16"
 - "Analyze cost increases using the analyze_cost_increase tool"
 - "Compare expensive queries using the compare_expensive_queries tool"
 

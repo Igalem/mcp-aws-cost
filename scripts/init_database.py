@@ -22,7 +22,7 @@ def main():
     parser.add_argument(
         "--source-csv",
         type=str,
-        help="Path to source CSV file (default: reports/athena_etls_2025-12-10_to_2025-12-16.csv)",
+        help="Path to source CSV file (default: reports/athena_ETL_2025-12-10_to_2025-12-16.csv)",
         default=None
     )
     
@@ -37,7 +37,7 @@ def main():
     if csv_file is None:
         # Default to the sample report file
         script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        csv_file = os.path.join(script_dir, "reports", "athena_etls_2025-12-10_to_2025-12-16.csv")
+        csv_file = os.path.join(script_dir, "reports", "athena_ETL_2025-12-10_to_2025-12-16.csv")
     
     if not os.path.exists(csv_file):
         print(f"⚠ Warning: CSV file not found: {csv_file}")

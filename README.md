@@ -107,7 +107,7 @@ Queries Athena query execution data from PostgreSQL database and exports to CSV.
 **Note:** This tool queries the PostgreSQL database only. Data is collected by the daily process (`scripts/daily_fetch_queries.py`).
 
 **Parameters:**
-- `workgroup` (string, optional): Athena workgroup name (e.g., "ETLs"). If not provided, queries all workgroups
+- `workgroup` (string, optional): Athena workgroup name (e.g., "ETL"). If not provided, queries all workgroups
 - `start_date` (string, required): Start date in YYYY-MM-DD format
 - `end_date` (string, required): End date in YYYY-MM-DD format
 - `output_dir` (string, optional): Output directory for CSV (default: ./reports)
@@ -115,7 +115,7 @@ Queries Athena query execution data from PostgreSQL database and exports to CSV.
 **Example - Specific workgroup:**
 ```json
 {
-  "workgroup": "ETLs",
+  "workgroup": "ETL",
   "start_date": "2025-12-10",
   "end_date": "2025-12-16"
 }
@@ -149,7 +149,7 @@ Analyzes cost increases by comparing baseline vs spike periods. Can query from P
 **Example - Using CSV:**
 ```json
 {
-  "csv_file": "./reports/athena_etls_2025-11-08_to_2025-11-27.csv",
+  "csv_file": "./reports/athena_ETL_2025-11-08_to_2025-11-27.csv",
   "baseline_start": "2025-11-08",
   "baseline_end": "2025-11-11",
   "spike_start": "2025-11-12",
@@ -164,7 +164,7 @@ Analyzes cost increases by comparing baseline vs spike periods. Can query from P
   "baseline_end": "2025-11-11",
   "spike_start": "2025-11-12",
   "spike_end": "2025-11-27",
-  "workgroup": "ETLs"
+  "workgroup": "ETL"
 }
 ```
 
@@ -194,7 +194,7 @@ Compares expensive queries and extracts patterns. Can query from PostgreSQL data
 **Example - Using CSV:**
 ```json
 {
-  "csv_file": "./reports/athena_etls_2025-12-10_to_2025-12-16.csv",
+  "csv_file": "./reports/athena_ETL_2025-12-10_to_2025-12-16.csv",
   "query_pattern": "parquet__all_crm_users",
   "baseline_start": "2025-12-10",
   "baseline_end": "2025-12-14",
@@ -211,7 +211,7 @@ Compares expensive queries and extracts patterns. Can query from PostgreSQL data
   "baseline_start": "2025-12-10",
   "baseline_end": "2025-12-14",
   "target_date": "2025-12-15",
-  "workgroup": "ETLs"
+  "workgroup": "ETL"
 }
 ```
 

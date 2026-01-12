@@ -83,7 +83,7 @@ The agent automatically chooses the right tool based on user intent:
 The agent understands:
 - Relative dates: "last week", "last month", "past 7 days"
 - Absolute dates: "2025-12-01 to 2025-12-31"
-- Workgroup filters: "workgroup: ETLs"
+- Workgroup filters: "workgroup: ETL"
 - Conversational queries: "What's causing our costs to spike?"
 
 ### Context Awareness
