@@ -22,7 +22,7 @@ START_DATE_BASELINE = START_DATE_SPIKE - timedelta(days=7) # One week before
 def generate_query(timestamp, is_spike=False):
     """Generate a query, potentially with inflated cost if it's a spike."""
     
-    workgroups = ['primary', 'analytics', 'reporting', 'etl', 'dashboard', 'ad-hoc', 'data-science']
+    workgroups = ['staging', 'analytics', 'reporting', 'etl', 'dashboard', 'ad-hoc', 'data-science']
     workgroup = random.choice(workgroups)
     
     # If we are in the spike period and this is the target workgroup, assume high activity

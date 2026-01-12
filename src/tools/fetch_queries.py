@@ -89,7 +89,7 @@ def list_workgroups(athena_client) -> List[str]:
     except Exception as e:
         # If list_work_groups fails, try common default workgroups
         # Try common workgroup names
-        for default_wg in ["primary", "ETL"]:
+        for default_wg in ['staging', "ETL"]:
             try:
                 # Test if workgroup exists by trying to list queries
                 list(athena_client.list_query_executions(WorkGroup=default_wg, MaxResults=1).get("QueryExecutionIds", []))
@@ -97,7 +97,7 @@ def list_workgroups(athena_client) -> List[str]:
             except:
                 pass
     
-    return workgroups if workgroups else ["primary"]  # Default to primary if listing fails
+    return workgroups if workgroups else ['staging']  # Default to primary if listing fails
 
 
 def _process_single_workgroup(
@@ -295,7 +295,7 @@ def _get_query_execution_details(
                 continue
             
             query_execution_id = execution.get("QueryExecutionId")
-            workgroup = workgroup_map.get(query_execution_id, execution.get("WorkGroup", "primary"))
+            workgroup = workgroup_map.get(query_execution_id, execution.get("WorkGroup", 'staging'))
             
             # Extract status_reason (StateChangeReason)
             status_reason = status.get("StateChangeReason")

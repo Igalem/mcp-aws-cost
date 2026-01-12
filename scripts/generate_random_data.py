@@ -41,7 +41,7 @@ def generate_random_query(start_date, end_date):
     runtime_minutes = duration_seconds / 60.0
     
     # Workgroup
-    workgroups = ['primary', 'analytics', 'reporting', 'etl', 'dashboard', 'ad-hoc', 'data-science', 'ml-training', 'marketing-campaigns']
+    workgroups = ['staging', 'analytics', 'reporting', 'etl', 'dashboard', 'ad-hoc', 'data-science', 'ml-training', 'marketing-campaigns']
     workgroup = random.choice(workgroups)
     
     # State
